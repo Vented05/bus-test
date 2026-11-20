@@ -949,6 +949,72 @@ html, body {
   line-height: 1;
 }
 
+/* Transit Center / Hub and Canceled Badges */
+.badge-hub {
+  background: #FFF3E0 !important;
+  color: #E65100 !important;
+  border: 1px solid #FFE0B2;
+}
+
+.badge-canceled {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  background-color: #FFEBEE;
+  color: #D32F2F;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+.itin-canceled-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background-color: #FFF3E0;
+  color: #E65100;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.dep-exact-time {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.dep-bay-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #E8F5E9;
+  color: #2E7D32;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.dep-bus-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--ac-blue);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.load-pill {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
 .dep-min-label {
   font-size: 11px;
   color: var(--text-muted);

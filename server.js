@@ -88,6 +88,156 @@ async function fetchJson(url, options = {}) {
   return await res.json();
 }
 
+// Feed time parsing & formatting (Exact times matching official AC Transit app)
+const pt = s => {
+  const m = /(\d{4})(\d\d)(\d\d) (\d\d):(\d\d)/.exec(s || '');
+  return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5]) : null;
+};
+
+const fmtTime = d => {
+  if (!d || !(d instanceof Date) || isNaN(d)) return '';
+  return (d.getHours() % 12 || 12) + ':' + String(d.getMinutes()).padStart(2, '0') + (d.getHours() < 12 ? 'am' : 'pm');
+};
+
+const fmtMins = p => {
+  if (!p) return 'Due';
+  if (/^due$/i.test(p.prdctdn) || +p.prdctdn <= 0) return 'Due';
+  return `${p.prdctdn} min`;
+};
+
+// Canceled trips cache
+let canceledTripsCache = { timestamp: 0, data: [] };
+async function getCanceledTrips() {
+  const now = Date.now();
+  if (now - canceledTripsCache.timestamp < 45000 && canceledTripsCache.data.length > 0) {
+    return canceledTripsCache.data;
+  }
+  const pad = n => String(n).padStart(2, '0');
+  const fDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const dNow = new Date();
+  const tFrom = fDate(new Date(dNow.getTime() - 2 * 3600000));
+  const tTo = fDate(new Date(dNow.getTime() + 10 * 3600000));
+  try {
+    const url = `${ACT_API_BASE}/trips/canceled?tripDateTimeFrom=${tFrom}&tripDateTimeTo=${tTo}&token=${ACT_TOKEN}`;
+    const data = await fetchJson(url);
+    if (Array.isArray(data)) {
+      canceledTripsCache = { timestamp: now, data };
+      return data;
+    }
+  } catch (err) {
+    console.warn('[CanceledTrips] Fetch error:', err.message);
+  }
+  return canceledTripsCache.data || [];
+}
+
+// Smart deduplication and grouping for transit stops
+function groupAndDeduplicateStops(stops, query) {
+  const qLower = query.toLowerCase().trim();
+  const isNumeric = /^\d{4,6}$/.test(qLower);
+
+  if (isNumeric) {
+    const exact = stops.filter(s => String(s.code || s.stopId) === qLower);
+    if (exact.length > 0) {
+      return exact.map(s => ({
+        id: `stop_${s.stopId}`,
+        name: `${s.name} (Stop #${s.code || s.stopId})`,
+        label: s.city ? `${s.city}` : 'East Bay, CA',
+        city: s.city || 'East Bay',
+        lat: s.lat,
+        lon: s.lon,
+        type: 'stop',
+        stopId: String(s.code || s.stopId),
+        allStopIds: [String(s.code || s.stopId)],
+        isHub: false,
+        stopCount: 1
+      }));
+    }
+  }
+
+  const matches = stops.filter(s => {
+    const nameMatch = s.name && s.name.toLowerCase().includes(qLower);
+    const codeMatch = s.code && String(s.code) === qLower;
+    return nameMatch || codeMatch;
+  });
+
+  const distM = (a, b) => {
+    const r = Math.PI / 180;
+    const x = Math.sin((b.lat - a.lat) * r / 2) ** 2 +
+              Math.cos(a.lat * r) * Math.cos(b.lat * r) *
+              Math.sin((b.lon - a.lon) * r / 2) ** 2;
+    return 12742000 * Math.asin(Math.sqrt(x));
+  };
+
+  const groups = [];
+  for (const s of matches) {
+    const normName = s.name.trim().toLowerCase();
+    let foundGroup = null;
+    for (const g of groups) {
+      if (g.normName === normName && distM(g, s) < 450) {
+        foundGroup = g;
+        break;
+      }
+    }
+    if (foundGroup) {
+      foundGroup.stops.push(s);
+    } else {
+      groups.push({
+        name: s.name.trim(),
+        normName: normName,
+        city: s.city || '',
+        lat: s.lat,
+        lon: s.lon,
+        stops: [s]
+      });
+    }
+  }
+
+  groups.sort((a, b) => {
+    const aStarts = a.normName.startsWith(qLower);
+    const bStarts = b.normName.startsWith(qLower);
+    if (aStarts !== bStarts) return aStarts ? -1 : 1;
+    return b.stops.length - a.stops.length;
+  });
+
+  return groups.slice(0, 6).map(g => {
+    const count = g.stops.length;
+    const codes = g.stops.map(s => String(s.code || s.stopId));
+    const avgLat = g.stops.reduce((sum, s) => sum + s.lat, 0) / count;
+    const avgLon = g.stops.reduce((sum, s) => sum + s.lon, 0) / count;
+
+    if (count > 1) {
+      return {
+        id: `hub_${codes[0]}`,
+        name: g.name,
+        label: `Transit Center · ${count} Stops (#${codes.slice(0, 3).join(', ')}${count > 3 ? '...' : ''}) · ${g.city}`,
+        city: g.city || 'East Bay',
+        lat: avgLat,
+        lon: avgLon,
+        type: 'stop',
+        stopId: codes.join(','),
+        allStopIds: codes,
+        isHub: true,
+        stopCount: count
+      };
+    } else {
+      const s = g.stops[0];
+      return {
+        id: `stop_${s.stopId}`,
+        name: s.name,
+        label: `Stop #${s.code || s.stopId} · ${s.city}`,
+        city: s.city || 'East Bay',
+        lat: s.lat,
+        lon: s.lon,
+        type: 'stop',
+        stopId: String(s.code || s.stopId),
+        allStopIds: [String(s.code || s.stopId)],
+        isHub: false,
+        stopCount: 1
+      };
+    }
+  });
+}
+
 // Route classification & color assignment
 function getRouteMeta(r) {
   const id = r.RouteId || r.id || '';
@@ -379,41 +529,45 @@ app.get('/api/stops/:id', (req, res) => {
   res.json(stop);
 });
 
-// Live predictions for a stop
+// Live predictions for a stop (supports single ID or comma-separated multi-stop IDs for transit centers)
 app.get('/api/stops/:id/predictions', async (req, res) => {
-  const stopId = req.params.id;
+  const stopIdParam = req.params.id;
+  const ids = String(stopIdParam).split(',').map(s => s.trim()).filter(Boolean);
   const results = {
-    stopId,
+    stopId: ids.join(','),
     timestamp: new Date().toISOString(),
     predictions: []
   };
 
   try {
-    // 1. Fetch from Bustime API
-    const bustimeUrl = `${ACT_API_BASE}/actrealtime/prediction?stpid=${encodeURIComponent(stopId)}&token=${ACT_TOKEN}`;
-    const bustimeData = await fetchJson(bustimeUrl);
-    const prdList = bustimeData?.['bustime-response']?.prd || [];
+    const prdList = [];
+    // Batch in groups of up to 10 stop IDs as supported by AC Transit Bustime
+    for (let i = 0; i < ids.length; i += 10) {
+      const chunk = ids.slice(i, i + 10);
+      const bustimeUrl = `${ACT_API_BASE}/actrealtime/prediction?stpid=${chunk.join(',')}&token=${ACT_TOKEN}`;
+      const bustimeData = await fetchJson(bustimeUrl);
+      const items = bustimeData?.['bustime-response']?.prd || [];
+      if (Array.isArray(items)) prdList.push(...items);
+    }
 
-    if (Array.isArray(prdList) && prdList.length > 0) {
+    if (prdList.length > 0) {
       results.predictions = prdList.map(p => {
-        // prdtm format: "YYYYMMDD HH:MM"
-        let minutes = null;
-        if (p.prdtm) {
-          const parts = p.prdtm.split(' ');
-          if (parts.length === 2) {
-            const timeParts = parts[1].split(':');
-            const now = new Date();
-            const predDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(timeParts[0], 10), parseInt(timeParts[1], 10));
-            minutes = Math.max(0, Math.round((predDate.getTime() - Date.now()) / 60000));
-          }
-        }
+        const predDate = pt(p.prdtm);
+        const isDue = /^due$/i.test(p.prdctdn) || +p.prdctdn <= 0;
+        const minsVal = isDue ? 0 : (+p.prdctdn || (predDate ? Math.max(0, Math.round((predDate.getTime() - Date.now()) / 60000)) : 0));
+
         return {
           route: p.rt,
           direction: p.rtdir,
           destination: p.des,
           vehicleId: p.vid,
+          stopId: p.stpid,
+          stopName: p.stpnm,
           predictedTime: p.prdtm,
-          minutes: minutes !== null ? minutes : (p.dstp ? Math.round(p.dstp / 500) : 0),
+          formattedTime: fmtTime(predDate),
+          countdown: fmtMins(p),
+          minutes: minsVal,
+          passengerLoad: p.psgld || null,
           isDelayed: Boolean(p.dly),
           isLive: true
         };
@@ -422,12 +576,13 @@ app.get('/api/stops/:id/predictions', async (req, res) => {
       return res.json(results);
     }
   } catch (err) {
-    console.warn(`[Predictions] Bustime fetch error for stop ${stopId}:`, err.message);
+    console.warn(`[Predictions] Bustime fetch error for stop ${stopIdParam}:`, err.message);
   }
 
   // 2. Fallback to OTP stoptimes if Bustime returns empty or off-hours
   try {
-    const otpUrl = `${OTP_BASE}/index/stops/2:${encodeURIComponent(stopId)}/stoptimes?numberOfDepartures=6`;
+    const firstId = ids[0];
+    const otpUrl = `${OTP_BASE}/index/stops/2:${encodeURIComponent(firstId)}/stoptimes?numberOfDepartures=6`;
     const otpData = await fetchJson(otpUrl);
     if (Array.isArray(otpData)) {
       const fallbackList = [];
@@ -440,13 +595,19 @@ app.get('/api/stops/:id/predictions', async (req, res) => {
           const serviceDay = t.serviceDay || nowSec;
           const fullDepTime = serviceDay + depTimeSec;
           const diffMinutes = Math.max(0, Math.round((fullDepTime - nowSec) / 60));
+          const predDate = new Date(fullDepTime * 1000);
           fallbackList.push({
             route: routeId,
             direction: desc,
             destination: desc.split(' to ')?.[1]?.split(' (2:')?.[0] || desc,
             vehicleId: null,
+            stopId: firstId,
+            stopName: '',
             predictedTime: null,
+            formattedTime: fmtTime(predDate),
+            countdown: diffMinutes <= 0 ? 'Due' : `${diffMinutes} min`,
             minutes: diffMinutes,
+            passengerLoad: null,
             isDelayed: (t.departureDelay || 0) > 120,
             isLive: Boolean(t.realtime)
           });
@@ -456,10 +617,16 @@ app.get('/api/stops/:id/predictions', async (req, res) => {
       results.predictions = fallbackList.slice(0, 8);
     }
   } catch (err) {
-    console.warn(`[Predictions] OTP fallback error for stop ${stopId}:`, err.message);
+    console.warn(`[Predictions] OTP fallback error for stop ${stopIdParam}:`, err.message);
   }
 
   res.json(results);
+});
+
+// Canceled Trips Endpoint
+app.get('/api/trips/canceled', async (req, res) => {
+  const data = await getCanceledTrips();
+  res.json(data);
 });
 
 // Live Fleet Overview (parallel batching for all active buses)
@@ -469,7 +636,6 @@ app.get('/api/fleet', async (req, res) => {
     return res.json(liveVehiclesCache.data);
   }
 
-  // Top trunk and high frequency lines to poll in parallel
   const targetRoutes = routesCache.length > 0
     ? routesCache.slice(0, 40).map(r => r.routeId)
     : ['1T', '51A', '51B', '72', '72M', '72R', '6', '18', '88', '40', '14', '20', '73', 'F', 'NL', 'O', 'W'];
@@ -502,31 +668,24 @@ app.get('/api/fleet', async (req, res) => {
   }
 });
 
-// Pelias Geocoding / Autocomplete
+// Pelias Geocoding / Autocomplete with Smart Stop Grouping & Deduplication
 app.get('/api/geocode', async (req, res) => {
   const { query, lat, lon } = req.query;
   if (!query || query.trim().length === 0) {
     return res.json([]);
   }
 
-  // Also search stops locally for instant results
   const qLower = query.toLowerCase().trim();
-  const localStopMatches = stopsCache
-    .filter(s => s.name.toLowerCase().includes(qLower) || s.code === qLower)
-    .slice(0, 5)
-    .map(s => ({
-      id: `stop_${s.stopId}`,
-      name: s.name,
-      label: `${s.name} (Stop #${s.code})`,
-      city: s.city,
-      lat: s.lat,
-      lon: s.lon,
-      type: 'stop',
-      stopId: s.stopId
-    }));
+  const cleanQ = qLower.replace(/^(line|bus|route)\s+/i, '').trim();
 
+  // 1. Routes match
   const localRouteMatches = routesCache
-    .filter(r => r.name.toLowerCase() === qLower || r.name.toLowerCase().startsWith(qLower) || r.description.toLowerCase().includes(qLower))
+    .filter(r => {
+      const rLower = r.name.toLowerCase();
+      return rLower === cleanQ || rLower === qLower ||
+             rLower.startsWith(cleanQ) ||
+             r.description.toLowerCase().includes(cleanQ);
+    })
     .slice(0, 4)
     .map(r => ({
       id: `route_${r.routeId}`,
@@ -538,6 +697,9 @@ app.get('/api/geocode', async (req, res) => {
       category: r.category
     }));
 
+  // 2. Smart clustered & deduplicated stops
+  const localStopMatches = groupAndDeduplicateStops(stopsCache, cleanQ || query);
+
   try {
     const focusLat = lat || 37.8044;
     const focusLon = lon || -122.2711;
@@ -545,15 +707,31 @@ app.get('/api/geocode', async (req, res) => {
     const peliasData = await fetchJson(peliasUrl);
     const features = peliasData?.features || [];
 
-    const placeMatches = features.slice(0, 6).map(f => ({
-      id: f.properties.id || f.properties.gid,
-      name: f.properties.name,
-      label: f.properties.label || f.properties.name,
-      city: f.properties.locality || f.properties.county || 'Bay Area',
-      lat: f.geometry.coordinates[1],
-      lon: f.geometry.coordinates[0],
-      type: 'place'
-    }));
+    const stopNameSet = new Set(localStopMatches.map(s => s.name.toLowerCase().trim()));
+    const routeNameSet = new Set(localRouteMatches.map(r => r.name.toLowerCase().trim()));
+
+    const placeMatches = features
+      .map(f => ({
+        id: f.properties.id || f.properties.gid,
+        name: f.properties.name,
+        label: f.properties.label || f.properties.name,
+        city: f.properties.locality || f.properties.county || 'Bay Area',
+        lat: f.geometry.coordinates[1],
+        lon: f.geometry.coordinates[0],
+        type: 'place'
+      }))
+      .filter(p => {
+        const pLower = (p.name || '').toLowerCase().trim();
+        if (stopNameSet.has(pLower) || routeNameSet.has(pLower)) return false;
+        for (const s of localStopMatches) {
+          if (s.name.toLowerCase().includes(pLower) || pLower.includes(s.name.toLowerCase())) {
+            const dist = getDistanceMeters(s.lat, s.lon, p.lat, p.lon);
+            if (dist < 1000) return false;
+          }
+        }
+        return true;
+      })
+      .slice(0, 4);
 
     res.json([...localRouteMatches, ...localStopMatches, ...placeMatches]);
   } catch (err) {
@@ -561,7 +739,7 @@ app.get('/api/geocode', async (req, res) => {
   }
 });
 
-// Trip Planner (Google Maps Directions)
+// Trip Planner (Google Maps Directions) with Canceled Trips & Realignment Exclusion
 app.get('/api/plan', async (req, res) => {
   const {
     from, // "lat,lon" or "name::lat,lon"
@@ -579,9 +757,9 @@ app.get('/api/plan', async (req, res) => {
   }
 
   try {
-    // If date is not provided, default to current local date (MM-DD-YYYY)
     const now = new Date();
-    const defaultDate = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
+    const pad = n => String(n).padStart(2, '0');
+    const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     const effectiveDate = date || defaultDate;
 
     const params = new URLSearchParams({
@@ -591,18 +769,39 @@ app.get('/api/plan', async (req, res) => {
       mode,
       maxWalkDistance,
       optimize: 'QUICK',
+      bannedAgencies: 'ACREALIGN',
+      actmode: 'true',
+      walkSpeed: '1.34',
+      ignoreRealtimeUpdates: 'false',
       showIntermediateStops: 'true',
-      numItineraries: '5',
+      numItineraries: '6',
       wheelchair: String(wheelchair),
       date: effectiveDate
     });
     if (time) params.append('time', time);
+
+    const canceledTrips = await getCanceledTrips().catch(() => []);
+    const canForLeg = (leg) => {
+      if (!leg || leg.mode !== 'BUS') return null;
+      const routeAlpha = String(leg.routeShortName || leg.route || '').toUpperCase();
+      for (const c of canceledTrips) {
+        if (String(c.RouteAlpha || '').toUpperCase() !== routeAlpha) continue;
+        if (c.TripStartTime && leg.startTime) {
+          const cStart = Date.parse(c.TripStartTime);
+          if (cStart && Math.abs(cStart - leg.startTime) < 20 * 60000) {
+            return 'yes';
+          }
+        }
+      }
+      return null;
+    };
 
     const otpUrl = `${OTP_BASE}/plan?${params.toString()}`;
     const data = await fetchJson(otpUrl);
 
     const itineraries = data?.plan?.itineraries || [];
     const formatted = itineraries.map((itin, index) => {
+      let itinHasCanceled = false;
       const legs = (itin.legs || []).map(leg => {
         let routeMeta = null;
         if (leg.mode === 'BUS' && (leg.route || leg.routeShortName)) {
@@ -615,13 +814,14 @@ app.get('/api/plan', async (req, res) => {
           };
         }
 
-        const decodedCoords = leg.legGeometry?.points ? decodePolyline(leg.legGeometry.points) : [];
+        const isCanceled = canForLeg(leg) === 'yes';
+        if (isCanceled) itinHasCanceled = true;
 
         return {
           mode: leg.mode,
-          route: leg.route || leg.routeShortName || '',
+          route: leg.routeShortName || leg.route || '',
           routeShortName: leg.routeShortName || leg.route || '',
-          routeLongName: leg.routeLongName || '',
+          routeLongName: leg.routeLongName || routeMeta?.description || '',
           headsign: leg.headsign || '',
           agencyName: leg.agencyName || 'AC TRANSIT',
           color: routeMeta ? routeMeta.color : (leg.mode === 'WALK' ? '#78909C' : '#0072CE'),
@@ -631,6 +831,7 @@ app.get('/api/plan', async (req, res) => {
           distanceMeters: Math.round(leg.distance),
           startTime: leg.startTime,
           endTime: leg.endTime,
+          isCanceled,
           from: {
             name: leg.from?.name || 'Origin',
             stopId: leg.from?.stopId?.split(':')?.[1] || leg.from?.stopId || null,
@@ -653,7 +854,7 @@ app.get('/api/plan', async (req, res) => {
             lon: st.lon,
             arrivalTime: st.arrivalTime
           })),
-          coordinates: decodedCoords,
+          coordinates: leg.legGeometry?.points ? decodePolyline(leg.legGeometry.points) : [],
           steps: (leg.steps || []).map(step => ({
             instruction: `${step.relativeDirection || 'Continue'} on ${step.streetName || 'path'}`,
             distanceMeters: Math.round(step.distance),
@@ -673,6 +874,7 @@ app.get('/api/plan', async (req, res) => {
         walkDistanceMeters: Math.round(itin.walkDistance || 0),
         walkDistanceMiles: +((itin.walkDistance || 0) / 1609.34).toFixed(2),
         transfers: itin.transfers || 0,
+        hasCanceledBus: itinHasCanceled,
         fare: itin.fare?.fare?.regular?.cents ? `$${(itin.fare.fare.regular.cents / 100).toFixed(2)}` : '$2.50',
         legs
       };
@@ -683,8 +885,10 @@ app.get('/api/plan', async (req, res) => {
       to: data?.plan?.to,
       itineraries: formatted
     });
+
   } catch (err) {
-    res.status(500).json({ error: 'Trip planning failed', details: err.message });
+    console.error('[Plan] OTP Error:', err.message);
+    res.status(500).json({ error: 'Failed to plan route', details: err.message });
   }
 });
 

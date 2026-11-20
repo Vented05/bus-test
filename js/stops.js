@@ -44,20 +44,26 @@ export class StopsController {
     this.map.setSelectedStop(stop);
     this.map.flyTo([stop.lon, stop.lat], 16);
 
+    const isHub = Boolean(stop.isHub || (stop.allStopIds && stop.allStopIds.length > 1));
+    const subtitle = isHub
+      ? (stop.label || `${stop.city || 'East Bay'} Transit Center`)
+      : `Stop #${stop.code || stop.stopId} • ${stop.city || 'East Bay'}`;
+
     // Render stop card UI
-    this.app.openPanel('view-stop', stop.name, `Stop #${stop.code || stop.stopId} • ${stop.city}`);
+    this.app.openPanel('view-stop', stop.name, subtitle);
     this._renderStopCard(stop);
 
     // Fetch initial predictions & start auto-refresh polling
-    this.fetchPredictions(stop.stopId || stop.code);
-    this._startPolling(stop.stopId || stop.code);
+    const queryIds = stop.allStopIds ? stop.allStopIds.join(',') : (stop.stopId || stop.code);
+    this.fetchPredictions(queryIds);
+    this._startPolling(queryIds);
   }
 
   _startPolling(stopId) {
     this._stopPolling();
     this.refreshTimer = setInterval(() => {
       this.fetchPredictions(stopId, true);
-    }, 15000);
+    }, 12000);
   }
 
   _stopPolling() {
@@ -69,13 +75,17 @@ export class StopsController {
 
   _renderStopCard(stop) {
     const isSaved = this.app.isSaved('stops', stop.stopId || stop.code);
+    const isHub = Boolean(stop.isHub || (stop.allStopIds && stop.allStopIds.length > 1));
+    const stopCount = stop.stopCount || (stop.allStopIds ? stop.allStopIds.length : 1);
 
     this.stopCard.innerHTML = `
       <div class="stop-card-header">
-        <span class="stop-code-badge">STOP #${stop.code || stop.stopId}</span>
+        <span class="stop-code-badge ${isHub ? 'badge-hub' : ''}">
+          ${isHub ? `TRANSIT CENTER · ${stopCount} BAYS` : `STOP #${stop.code || stop.stopId}`}
+        </span>
         <h3 class="stop-main-name">${stop.name}</h3>
         <p style="font-size: 12.5px; color: var(--text-secondary); margin-top: 2px;">
-          ${stop.city || 'East Bay, CA'}
+          ${isHub ? (stop.label || `${stop.city || 'East Bay'} Transit Center`) : (stop.city || 'East Bay, CA')}
         </p>
 
         <div class="stop-actions-row">
@@ -94,9 +104,9 @@ export class StopsController {
 
       <div class="departures-section">
         <div class="section-label">
-          <span>REAL-TIME ARRIVALS</span>
+          <span>${isHub ? 'ALL BAY ARRIVALS' : 'REAL-TIME ARRIVALS'}</span>
           <span style="font-size: 11px; font-weight: 500; color: var(--ac-green); display: flex; align-items: center; gap: 4px;">
-            <span class="pulse-dot" style="width: 6px; height: 6px;"></span> Live GPS
+            <span class="pulse-dot" style="width: 6px; height: 6px;"></span> Official AC Transit Live
           </span>
         </div>
         <div class="departures-list" id="stop-departures-list">
@@ -138,45 +148,74 @@ export class StopsController {
       if (prds.length === 0) {
         listEl.innerHTML = `
           <div style="text-align: center; padding: 18px; color: var(--text-muted); font-size: 13px;">
-            No upcoming departures scheduled in the next 60 minutes.
+            No upcoming departures scheduled right now.
           </div>
         `;
         return;
       }
 
+      const isMultiStop = String(stopId).includes(',');
+
       listEl.innerHTML = prds.map(p => {
         const mins = p.minutes;
-        const minText = mins === 0 ? 'Due' : `${mins}`;
+        const countdownStr = p.countdown || (mins === 0 ? 'Due' : `${mins} min`);
         const delayClass = p.isDelayed ? 'status-delayed' : 'status-on-time';
         const delayText = p.isDelayed ? 'Delayed' : (p.isLive ? 'On Time' : 'Scheduled');
 
+        // Passenger occupancy indicator (EMPTY, HALF_EMPTY, FULL)
+        let loadHtml = '';
+        if (p.passengerLoad) {
+          const n = { EMPTY: 1, HALF_EMPTY: 2, FULL: 3 }[p.passengerLoad] || 0;
+          if (n > 0) {
+            const c = n === 1 ? '#2bd35f' : n === 2 ? '#f1c40f' : '#ff5a4d';
+            loadHtml = `
+              <span class="load-pill" title="Passenger load: ${p.passengerLoad}">
+                ${[1, 2, 3].map(k => {
+                  const f = k <= n ? c : 'rgba(255,255,255,0.2)';
+                  return `<svg width="8" height="16" viewBox="0 0 11 22"><circle cx="5.5" cy="4" r="3.5" fill="${f}"/><path d="M1 21V10c0-2 1.5-3.5 4.5-3.5S10 8 10 10v11z" fill="${f}"/></svg>`;
+                }).join('')}
+              </span>
+            `;
+          }
+        }
+
         return `
-          <div class="departure-row" data-route="${p.route}">
+          <div class="departure-row" data-route="${p.route}" data-vid="${p.vehicleId || ''}">
             <div class="dep-route-col">
               <span class="dep-route-badge" style="background-color: var(--ac-blue);">
                 ${p.route}
               </span>
               <div class="dep-info">
-                <div class="dep-dest">${p.destination || p.direction}</div>
+                <div class="dep-dest">
+                  ${p.destination || p.direction}
+                  ${p.formattedTime ? `<span class="dep-exact-time">${p.formattedTime}</span>` : ''}
+                </div>
                 <div class="dep-status">
                   <span class="${delayClass}">● ${delayText}</span>
-                  ${p.vehicleId ? `<span style="background: var(--bg-tertiary); padding: 1px 6px; border-radius: 4px; font-weight: 700; color: var(--ac-blue);">Bus #${p.vehicleId}</span>` : ''}
+                  ${p.vehicleId ? `<span class="dep-bus-pill">Bus #${p.vehicleId}</span>` : ''}
+                  ${isMultiStop && p.stopId ? `<span class="dep-bay-pill">Bay / Stop #${p.stopId}</span>` : ''}
+                  ${loadHtml}
                 </div>
               </div>
             </div>
             <div class="dep-time-col">
-              <div class="dep-minutes">${minText}</div>
-              <div class="dep-min-label">${mins === 0 ? 'Now' : 'min'}</div>
+              <div class="dep-minutes">${countdownStr === 'Due' ? 'Due' : mins}</div>
+              <div class="dep-min-label">${countdownStr === 'Due' ? 'Now' : 'min'}</div>
             </div>
           </div>
         `;
       }).join('');
 
-      // Click on departure row to open Route
+      // Click on departure row to open Route or track bus
       listEl.querySelectorAll('.departure-row').forEach(row => {
         row.addEventListener('click', () => {
           const rId = row.getAttribute('data-route');
-          if (rId) this.app.routesController.inspectRoute(rId);
+          const vid = row.getAttribute('data-vid');
+          if (vid && this.app.busTracker) {
+            this.app.busTracker.trackVehicle(vid, rId);
+          } else if (rId) {
+            this.app.routesController.inspectRoute(rId);
+          }
         });
       });
 

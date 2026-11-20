@@ -184,17 +184,23 @@ export class DirectionsController {
       return;
     }
 
-    this.dropdown.innerHTML = results.map(item => `
-      <div class="dropdown-item" data-id="${item.id}" data-name="${item.name}" data-lat="${item.lat}" data-lon="${item.lon}">
-        <div class="item-icon-wrapper">
-          <i data-lucide="${item.type === 'stop' ? 'bus' : 'map-pin'}"></i>
+    this.dropdown.innerHTML = results.map(item => {
+      let icon = item.type === 'stop' ? (item.isHub ? 'building-2' : 'bus') : 'map-pin';
+      let iconBg = item.isHub ? '#FFF3E0' : 'var(--bg-tertiary)';
+      let iconColor = item.isHub ? '#E65100' : 'var(--text-secondary)';
+
+      return `
+        <div class="dropdown-item" data-id="${item.id}" data-name="${item.name}" data-lat="${item.lat}" data-lon="${item.lon}">
+          <div class="item-icon-wrapper" style="background-color: ${iconBg}; color: ${iconColor};">
+            <i data-lucide="${icon}"></i>
+          </div>
+          <div class="item-content">
+            <div class="item-title">${item.name}</div>
+            <div class="item-subtitle">${item.label || item.city || ''}</div>
+          </div>
         </div>
-        <div class="item-content">
-          <div class="item-title">${item.name}</div>
-          <div class="item-subtitle">${item.city || item.label || ''}</div>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     this.dropdown.classList.remove('hidden');
     if (window.lucide) window.lucide.createIcons({ root: this.dropdown });
@@ -390,6 +396,7 @@ export class DirectionsController {
             <span class="transit-badge" style="background-color: ${leg.color}; color: ${leg.textColor};">
               <span>${leg.routeShortName || leg.route}</span>
             </span>
+            ${leg.isCanceled ? '<span class="badge-canceled">CANCELED</span>' : ''}
             ${legIdx < itin.legs.length - 1 ? '<span class="arrow-separator">›</span>' : ''}
           `;
         }
@@ -433,6 +440,7 @@ export class DirectionsController {
                   ? `Walk ${leg.durationMinutes} min (${(leg.distanceMeters / 1609.34).toFixed(1)} mi) to ${leg.to.name}`
                   : `Board Line ${leg.routeShortName} at ${leg.from.name} toward ${leg.headsign || leg.to.name}`
                 }
+                ${leg.isCanceled ? '<span class="badge-canceled" style="margin-left: 6px;">CANCELED</span>' : ''}
               </div>
               <div class="leg-subinfo">
                 ${isWalk 
@@ -448,6 +456,7 @@ export class DirectionsController {
 
       return `
         <div class="itinerary-card ${idx === 0 ? 'selected' : ''}" data-index="${idx}">
+          ${itin.hasCanceledBus ? '<div class="itin-canceled-banner"><i data-lucide="alert-triangle"></i> Trip includes a canceled bus</div>' : ''}
           <div class="itin-header">
             <div class="itin-duration">${durationMins} min</div>
             <div class="itin-times">${startFormatted} – ${endFormatted}</div>

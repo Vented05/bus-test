@@ -50,6 +50,135 @@ function getDistanceMeters(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+const pt = s => {
+  const m = /(\d{4})(\d\d)(\d\d) (\d\d):(\d\d)/.exec(s || '');
+  return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5]) : null;
+};
+
+const fmtTime = d => {
+  if (!d || !(d instanceof Date) || isNaN(d)) return '';
+  return (d.getHours() % 12 || 12) + ':' + String(d.getMinutes()).padStart(2, '0') + (d.getHours() < 12 ? 'am' : 'pm');
+};
+
+const fmtMins = p => {
+  if (!p) return 'Due';
+  if (/^due$/i.test(p.prdctdn) || +p.prdctdn <= 0) return 'Due';
+  return `${p.prdctdn} min`;
+};
+
+function groupAndDeduplicateStops(stops, query) {
+  const qLower = query.toLowerCase().trim();
+  const isNumeric = /^\d{4,6}$/.test(qLower);
+
+  // If numeric stop ID, prioritize exact stop ID match
+  if (isNumeric) {
+    const exact = stops.filter(s => String(s.code || s.stopId) === qLower);
+    if (exact.length > 0) {
+      return exact.map(s => ({
+        id: `stop_${s.stopId}`,
+        name: `${s.name} (Stop #${s.code || s.stopId})`,
+        label: s.city ? `${s.city}` : 'East Bay, CA',
+        city: s.city || 'East Bay',
+        lat: s.lat,
+        lon: s.lon,
+        type: 'stop',
+        stopId: String(s.code || s.stopId),
+        allStopIds: [String(s.code || s.stopId)],
+        isHub: false,
+        stopCount: 1
+      }));
+    }
+  }
+
+  // Filter stops that match the query
+  const matches = stops.filter(s => {
+    const nameMatch = s.name && s.name.toLowerCase().includes(qLower);
+    const codeMatch = s.code && String(s.code) === qLower;
+    return nameMatch || codeMatch;
+  });
+
+  // Haversine distance in meters
+  const distM = (a, b) => {
+    const r = Math.PI / 180;
+    const x = Math.sin((b.lat - a.lat) * r / 2) ** 2 +
+              Math.cos(a.lat * r) * Math.cos(b.lat * r) *
+              Math.sin((b.lon - a.lon) * r / 2) ** 2;
+    return 12742000 * Math.asin(Math.sqrt(x));
+  };
+
+  // Group matching stops by canonical name and proximity (< 450 meters)
+  const groups = [];
+  for (const s of matches) {
+    const normName = s.name.trim().toLowerCase();
+    let foundGroup = null;
+    for (const g of groups) {
+      if (g.normName === normName && distM(g, s) < 450) {
+        foundGroup = g;
+        break;
+      }
+    }
+    if (foundGroup) {
+      foundGroup.stops.push(s);
+    } else {
+      groups.push({
+        name: s.name.trim(),
+        normName: normName,
+        city: s.city || '',
+        lat: s.lat,
+        lon: s.lon,
+        stops: [s]
+      });
+    }
+  }
+
+  // Rank groups: exact prefix matches first, then largest multi-stop transit centers/hubs
+  groups.sort((a, b) => {
+    const aStarts = a.normName.startsWith(qLower);
+    const bStarts = b.normName.startsWith(qLower);
+    if (aStarts !== bStarts) return aStarts ? -1 : 1;
+    return b.stops.length - a.stops.length;
+  });
+
+  // Return top deduplicated stop groups
+  return groups.slice(0, 6).map(g => {
+    const count = g.stops.length;
+    const codes = g.stops.map(s => String(s.code || s.stopId));
+    const avgLat = g.stops.reduce((sum, s) => sum + s.lat, 0) / count;
+    const avgLon = g.stops.reduce((sum, s) => sum + s.lon, 0) / count;
+
+    if (count > 1) {
+      return {
+        id: `hub_${codes[0]}`,
+        name: g.name,
+        label: `Transit Center · ${count} Stops (#${codes.slice(0, 3).join(', ')}${count > 3 ? '...' : ''}) · ${g.city}`,
+        city: g.city || 'East Bay',
+        lat: avgLat,
+        lon: avgLon,
+        type: 'stop',
+        stopId: codes.join(','),
+        allStopIds: codes,
+        isHub: true,
+        stopCount: count
+      };
+    } else {
+      const s = g.stops[0];
+      return {
+        id: `stop_${s.stopId}`,
+        name: s.name,
+        label: `Stop #${s.code || s.stopId} · ${s.city}`,
+        city: s.city || 'East Bay',
+        lat: s.lat,
+        lon: s.lon,
+        type: 'stop',
+        stopId: String(s.code || s.stopId),
+        allStopIds: [String(s.code || s.stopId)],
+        isHub: false,
+        stopCount: 1
+      };
+    }
+  });
+}
+
 class ApiService {
   constructor() {
     this.isStatic = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
@@ -235,41 +364,87 @@ class ApiService {
   }
 
   async getStopPredictions(stopId) {
+    const ids = Array.isArray(stopId) 
+      ? stopId 
+      : String(stopId).split(',').map(s => s.trim()).filter(Boolean);
+
     if (this.isStatic) {
-      const url = `${ACT_API_BASE}/actrealtime/prediction?stpid=${encodeURIComponent(stopId)}&token=${ACT_TOKEN}`;
       try {
-        const res = await fetch(url);
-        const data = await res.json();
-        const prdList = data?.['bustime-response']?.prd || [];
+        const prdList = [];
+        // Batch in groups of up to 10 stop IDs as supported by AC Transit Bustime
+        for (let i = 0; i < ids.length; i += 10) {
+          const chunk = ids.slice(i, i + 10);
+          const url = `${ACT_API_BASE}/actrealtime/prediction?stpid=${chunk.join(',')}&token=${ACT_TOKEN}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          const items = data?.['bustime-response']?.prd || [];
+          if (Array.isArray(items)) prdList.push(...items);
+        }
+
         const predictions = prdList.map(p => {
-          let minutes = null;
-          if (p.prdtm) {
-            const parts = p.prdtm.split(' ');
-            if (parts.length === 2) {
-              const timeParts = parts[1].split(':');
-              const now = new Date();
-              const predDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(timeParts[0], 10), parseInt(timeParts[1], 10));
-              minutes = Math.max(0, Math.round((predDate.getTime() - Date.now()) / 60000));
-            }
-          }
+          const predDate = pt(p.prdtm);
+          const isDue = /^due$/i.test(p.prdctdn) || +p.prdctdn <= 0;
+          const minsVal = isDue ? 0 : (+p.prdctdn || (predDate ? Math.max(0, Math.round((predDate.getTime() - Date.now()) / 60000)) : 0));
+
           return {
             route: p.rt,
             direction: p.rtdir,
             destination: p.des,
             vehicleId: p.vid,
+            stopId: p.stpid,
+            stopName: p.stpnm,
             predictedTime: p.prdtm,
-            minutes: minutes !== null ? minutes : (p.dstp ? Math.round(p.dstp / 500) : 0),
+            formattedTime: fmtTime(predDate),
+            countdown: fmtMins(p),
+            minutes: minsVal,
+            passengerLoad: p.psgld || null,
             isDelayed: Boolean(p.dly),
             isLive: true
           };
         });
+
         predictions.sort((a, b) => a.minutes - b.minutes);
-        return { stopId, timestamp: new Date().toISOString(), predictions };
-      } catch {
-        return { stopId, timestamp: new Date().toISOString(), predictions: [] };
+        return { stopId: ids.join(','), timestamp: new Date().toISOString(), predictions };
+      } catch (err) {
+        console.warn('[API] getStopPredictions static error:', err);
+        return { stopId: ids.join(','), timestamp: new Date().toISOString(), predictions: [] };
       }
     }
-    return this.request(`/api/stops/${encodeURIComponent(stopId)}/predictions`);
+    return this.request(`/api/stops/${encodeURIComponent(ids.join(','))}/predictions`);
+  }
+
+  // ----------------- Canceled Trips -----------------
+  async getCanceledTrips() {
+    if (this._canceledTripsCache && (Date.now() - (this._canceledTripsTime || 0) < 45000)) {
+      return this._canceledTripsCache;
+    }
+    const pad = n => String(n).padStart(2, '0');
+    const fDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const now = new Date();
+    const tFrom = fDate(new Date(now.getTime() - 2 * 3600000));
+    const tTo = fDate(new Date(now.getTime() + 10 * 3600000));
+
+    if (this.isStatic) {
+      try {
+        const url = `${ACT_API_BASE}/trips/canceled?tripDateTimeFrom=${tFrom}&tripDateTimeTo=${tTo}&token=${ACT_TOKEN}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        this._canceledTripsCache = Array.isArray(data) ? data : [];
+        this._canceledTripsTime = Date.now();
+        return this._canceledTripsCache;
+      } catch (err) {
+        console.warn('[API] Canceled trips fetch error:', err);
+        return [];
+      }
+    }
+    try {
+      const data = await this.request('/api/trips/canceled');
+      this._canceledTripsCache = Array.isArray(data) ? data : [];
+      this._canceledTripsTime = Date.now();
+      return this._canceledTripsCache;
+    } catch {
+      return [];
+    }
   }
 
   // ----------------- Live Fleet -----------------
@@ -305,9 +480,15 @@ class ApiService {
     if (this.isStatic) {
       await this._ensureStaticData();
       const qLower = query.toLowerCase().trim();
+      const cleanQ = qLower.replace(/^(line|bus|route)\s+/i, '').trim();
 
       const localRouteMatches = (this.staticRoutes || [])
-        .filter(r => r.name.toLowerCase() === qLower || r.name.toLowerCase().startsWith(qLower) || r.description.toLowerCase().includes(qLower))
+        .filter(r => {
+          const rLower = r.name.toLowerCase();
+          return rLower === cleanQ || rLower === qLower ||
+                 rLower.startsWith(cleanQ) ||
+                 r.description.toLowerCase().includes(cleanQ);
+        })
         .slice(0, 4)
         .map(r => ({
           id: `route_${r.routeId}`,
@@ -319,33 +500,42 @@ class ApiService {
           category: r.category
         }));
 
-      const localStopMatches = (this.staticStops || [])
-        .filter(s => s.name.toLowerCase().includes(qLower) || s.code === qLower)
-        .slice(0, 5)
-        .map(s => ({
-          id: `stop_${s.stopId}`,
-          name: s.name,
-          label: `${s.name} (Stop #${s.code})`,
-          city: s.city,
-          lat: s.lat,
-          lon: s.lon,
-          type: 'stop',
-          stopId: s.stopId
-        }));
+      // Smart clustering & deduplication of stops
+      const localStopMatches = groupAndDeduplicateStops(this.staticStops || [], cleanQ || query);
 
       try {
-        const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&bbox=-123.2,37.24,-121,38.5&limit=5`;
+        const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&bbox=-123.2,37.24,-121,38.5&limit=8`;
         const pRes = await fetch(photonUrl);
         const pData = await pRes.json();
-        const placeMatches = (pData.features || []).map(f => ({
-          id: f.properties.osm_id || Math.random(),
-          name: f.properties.name || f.properties.street || query,
-          label: [f.properties.name, f.properties.street, f.properties.city].filter(Boolean).join(', '),
-          city: f.properties.city || 'Bay Area',
-          lat: f.geometry.coordinates[1],
-          lon: f.geometry.coordinates[0],
-          type: 'place'
-        }));
+
+        const stopNameSet = new Set(localStopMatches.map(s => s.name.toLowerCase().trim()));
+        const routeNameSet = new Set(localRouteMatches.map(r => r.name.toLowerCase().trim()));
+
+        const placeMatches = (pData.features || [])
+          .map(f => ({
+            id: f.properties.osm_id || Math.random(),
+            name: f.properties.name || f.properties.street || query,
+            label: [f.properties.name, f.properties.street, f.properties.city].filter(Boolean).join(', '),
+            city: f.properties.city || 'Bay Area',
+            lat: f.geometry.coordinates[1],
+            lon: f.geometry.coordinates[0],
+            type: 'place'
+          }))
+          .filter(p => {
+            const pLower = p.name.toLowerCase().trim();
+            // Suppress place if identical to a transit stop or route
+            if (stopNameSet.has(pLower) || routeNameSet.has(pLower)) return false;
+            // Also suppress if transit stop name contains place name and is within 1km
+            for (const s of localStopMatches) {
+              if (s.name.toLowerCase().includes(pLower) || pLower.includes(s.name.toLowerCase())) {
+                const dist = Math.hypot(s.lat - p.lat, s.lon - p.lon) * 111000;
+                if (dist < 1000) return false;
+              }
+            }
+            return true;
+          })
+          .slice(0, 4);
+
         return [...localRouteMatches, ...localStopMatches, ...placeMatches];
       } catch {
         return [...localRouteMatches, ...localStopMatches];
@@ -358,7 +548,8 @@ class ApiService {
   async planTrip(options = {}) {
     if (this.isStatic) {
       const now = new Date();
-      const defaultDate = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
+      const pad = n => String(n).padStart(2, '0');
+      const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
       
       const params = new URLSearchParams({
         fromPlace: options.from,
@@ -367,21 +558,45 @@ class ApiService {
         mode: options.mode || 'WALK,BUS,TRAM,RAIL,SUBWAY,FERRY',
         maxWalkDistance: options.maxWalkDistance || '1609',
         optimize: 'QUICK',
+        bannedAgencies: 'ACREALIGN',
+        actmode: 'true',
+        walkSpeed: '1.34',
+        ignoreRealtimeUpdates: 'false',
         showIntermediateStops: 'true',
-        numItineraries: '5',
+        numItineraries: '6',
         wheelchair: String(options.wheelchair || 'false'),
         date: options.date || defaultDate
       });
       if (options.time) params.append('time', options.time);
+
+      const canceledTrips = await this.getCanceledTrips().catch(() => []);
+      const canForLeg = (leg) => {
+        if (!leg || leg.mode !== 'BUS') return null;
+        const routeAlpha = String(leg.routeShortName || leg.route || '').toUpperCase();
+        for (const c of canceledTrips) {
+          if (String(c.RouteAlpha || '').toUpperCase() !== routeAlpha) continue;
+          if (c.TripStartTime && leg.startTime) {
+            const cStart = Date.parse(c.TripStartTime);
+            if (cStart && Math.abs(cStart - leg.startTime) < 20 * 60000) {
+              return 'yes';
+            }
+          }
+        }
+        return null;
+      };
 
       const res = await fetch(`${OTP_BASE}/plan?${params.toString()}`);
       const data = await res.json();
       const itineraries = data?.plan?.itineraries || [];
 
       const formatted = itineraries.map((itin, index) => {
+        let itinHasCanceled = false;
         const legs = (itin.legs || []).map(leg => {
           const rId = leg.routeShortName || leg.route || '';
           const decodedCoords = leg.legGeometry?.points ? decodePolyline(leg.legGeometry.points) : [];
+          const isCanceled = canForLeg(leg) === 'yes';
+          if (isCanceled) itinHasCanceled = true;
+
           return {
             mode: leg.mode,
             route: rId,
@@ -396,6 +611,7 @@ class ApiService {
             distanceMeters: Math.round(leg.distance),
             startTime: leg.startTime,
             endTime: leg.endTime,
+            isCanceled,
             from: {
               name: leg.from?.name || 'Origin',
               stopId: leg.from?.stopId?.split(':')?.[1] || leg.from?.stopId || null,
@@ -438,6 +654,7 @@ class ApiService {
           walkDistanceMeters: Math.round(itin.walkDistance || 0),
           walkDistanceMiles: +((itin.walkDistance || 0) / 1609.34).toFixed(2),
           transfers: itin.transfers || 0,
+          hasCanceledBus: itinHasCanceled,
           fare: itin.fare?.fare?.regular?.cents ? `$${(itin.fare.fare.regular.cents / 100).toFixed(2)}` : '$2.50',
           legs
         };
