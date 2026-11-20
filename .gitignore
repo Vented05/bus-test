@@ -1,0 +1,4 @@
+node_modules/
+*.py
+*.log
+.DS_Store

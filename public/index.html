@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>AC Transit Maps — Live Bay Area Transit</title>
+  
+  <!-- Favicon & Web App Manifest -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%230072CE'><path d='M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z'/></svg>">
+  <meta name="theme-color" content="#0072CE">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Smooth, real-time AC Transit navigation, live GPS bus tracking, and route planning for the San Francisco Bay Area and East Bay.">
+
+  <!-- Google Fonts: Inter & Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- MapLibre GL CSS -->
+  <link rel="stylesheet" href="./vendor/maplibre-gl.css">
+  
+  <!-- Custom Modern Transit Styles -->
+  <link rel="stylesheet" href="./css/style.css">
+
+  <!-- Lucide Icons -->
+  <script src="./vendor/lucide.js"></script>
+</head>
+<body class="light-mode">
+  <div id="app" class="app-layout">
+
+    <!-- Fullscreen Map Canvas -->
+    <div id="map" class="map-container" aria-label="Interactive Transit Map"></div>
+
+    <!-- Floating Top-Left Navigation & Search Bar (Google Maps Style) -->
+    <div class="floating-header" id="floating-header">
+      
+      <!-- Primary Search Card -->
+      <div class="search-card" id="search-card">
+        <div class="search-input-wrapper">
+          <button class="icon-btn search-submit-btn" id="search-icon-btn" title="Search" aria-label="Search">
+            <i data-lucide="search"></i>
+          </button>
+          
+          <input 
+            type="text" 
+            id="main-search-input" 
+            class="main-search-input" 
+            placeholder="Search stops, routes, addresses..." 
+            autocomplete="off" 
+            spellcheck="false"
+          >
+          
+          <button class="icon-btn clear-btn hidden" id="clear-search-btn" title="Clear input" aria-label="Clear">
+            <i data-lucide="x"></i>
+          </button>
+          
+          <div class="search-divider"></div>
+          
+          <button class="icon-btn directions-toggle-btn" id="directions-mode-btn" title="Get Directions" aria-label="Get Directions">
+            <i data-lucide="navigation"></i>
+          </button>
+        </div>
+
+        <!-- Autocomplete Dropdown Menu -->
+        <div class="search-dropdown hidden" id="search-dropdown">
+          <div class="dropdown-section-title" id="dropdown-title">Suggestions</div>
+          <div class="dropdown-list" id="dropdown-list">
+            <!-- Autocomplete items rendered here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Action Filter Chips -->
+      <div class="action-chips" id="action-chips">
+        <button class="chip-btn active" data-action="explore" id="chip-explore">
+          <i data-lucide="compass"></i>
+          <span>Explore</span>
+        </button>
+        <button class="chip-btn" data-action="directions" id="chip-directions">
+          <i data-lucide="navigation"></i>
+          <span>Directions</span>
+        </button>
+        <button class="chip-btn" data-action="routes" id="chip-routes">
+          <i data-lucide="git-branch"></i>
+          <span>Routes</span>
+        </button>
+        <button class="chip-btn" data-action="nearby" id="chip-nearby">
+          <i data-lucide="map-pin"></i>
+          <span>Nearby</span>
+        </button>
+        <button class="chip-btn" data-action="fleet" id="chip-fleet">
+          <i data-lucide="bus"></i>
+          <span>Live Buses</span>
+          <span class="live-indicator-dot"></span>
+        </button>
+        <button class="chip-btn" data-action="saved" id="chip-saved">
+          <i data-lucide="bookmark"></i>
+          <span>Saved</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Floating Side Drawer / Sheet (Desktop & Mobile Responsive) -->
+    <aside class="side-panel hidden" id="side-panel">
+      <!-- Mobile Drag Handle -->
+      <div class="drawer-handle" id="drawer-handle">
+        <div class="handle-bar"></div>
+      </div>
+
+      <!-- Side Panel Header -->
+      <div class="panel-header" id="panel-header">
+        <div class="panel-title-group">
+          <h2 class="panel-title" id="panel-title">Panel</h2>
+          <p class="panel-subtitle" id="panel-subtitle"></p>
+        </div>
+        <button class="icon-btn close-panel-btn" id="close-panel-btn" title="Close Panel" aria-label="Close">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+
+      <!-- Panel Dynamic Content Body -->
+      <div class="panel-body" id="panel-body">
+        
+        <!-- View: Directions / Trip Planner Form -->
+        <div class="panel-view hidden" id="view-directions">
+          <div class="directions-form">
+            <!-- Origin & Destination Inputs -->
+            <div class="endpoints-container">
+              <div class="endpoints-markers">
+                <div class="marker-dot origin-dot"></div>
+                <div class="marker-line"></div>
+                <div class="marker-dot dest-dot"></div>
+              </div>
+              <div class="endpoints-inputs">
+                <div class="input-row">
+                  <input type="text" id="dir-from-input" class="dir-input" placeholder="Choose starting point or click map..." autocomplete="off">
+                  <button class="endpoint-quick-btn" id="dir-use-loc-btn" title="Use current location">
+                    <i data-lucide="crosshair"></i>
+                  </button>
+                </div>
+                <div class="input-row">
+                  <input type="text" id="dir-to-input" class="dir-input" placeholder="Choose destination or click map..." autocomplete="off">
+                </div>
+              </div>
+              <button class="icon-btn swap-endpoints-btn" id="swap-endpoints-btn" title="Reverse starting point and destination">
+                <i data-lucide="arrow-up-down"></i>
+              </button>
+            </div>
+
+            <!-- Autocomplete suggestions for directions -->
+            <div class="dir-dropdown hidden" id="dir-dropdown"></div>
+
+            <!-- Time Options & Quick Presets -->
+            <div class="directions-presets">
+              <button type="button" class="preset-chip active" id="preset-now">Now</button>
+              <button type="button" class="preset-chip" id="preset-3pm">⚡ 3:00 PM</button>
+              <button type="button" class="preset-chip" id="preset-8am">🌅 8:00 AM</button>
+            </div>
+
+            <!-- Time Options & Filters -->
+            <div class="directions-options">
+              <div class="select-wrapper">
+                <select id="dir-time-type" class="dir-select">
+                  <option value="now">Leave Now</option>
+                  <option value="depart">Depart at</option>
+                  <option value="arrive">Arrive by</option>
+                </select>
+              </div>
+              <input type="time" id="dir-time-val" class="dir-time-input hidden">
+              
+              <div class="select-wrapper" style="max-width: 130px;">
+                <select id="dir-mode-select" class="dir-select">
+                  <option value="WALK,BUS,TRAM,RAIL,SUBWAY,FERRY">All Transit</option>
+                  <option value="WALK,BUS">Bus Only</option>
+                </select>
+              </div>
+
+              <button class="btn-primary plan-trip-btn" id="plan-trip-btn">
+                <i data-lucide="arrow-right"></i>
+                <span>Find</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Trip Results Container -->
+          <div class="itineraries-container" id="itineraries-container">
+            <!-- Rendered Itineraries Cards -->
+          </div>
+        </div>
+
+        <!-- View: Stop Details & Live Arrivals -->
+        <div class="panel-view hidden" id="view-stop">
+          <div class="stop-details-card" id="stop-details-card">
+            <!-- Stop details and live Bustime departures -->
+          </div>
+        </div>
+
+        <!-- View: Route Details & Buses -->
+        <div class="panel-view hidden" id="view-route">
+          <div class="route-details-card" id="route-details-card">
+            <!-- Route header, direction tabs, live bus list, and stops list -->
+          </div>
+        </div>
+
+        <!-- View: All Routes Catalog -->
+        <div class="panel-view hidden" id="view-routes-catalog">
+          <div class="catalog-filters" id="catalog-filters">
+            <button class="filter-tab active" data-cat="all">All</button>
+            <button class="filter-tab" data-cat="Rapid">BRT / Rapid</button>
+            <button class="filter-tab" data-cat="Local">Local</button>
+            <button class="filter-tab" data-cat="Transbay">Transbay</button>
+            <button class="filter-tab" data-cat="All-Nighter">All-Nighter</button>
+            <button class="filter-tab" data-cat="School">School</button>
+          </div>
+          <div class="routes-list" id="routes-list">
+            <!-- Route items rendered here -->
+          </div>
+        </div>
+
+        <!-- View: Nearby Stops -->
+        <div class="panel-view hidden" id="view-nearby">
+          <div class="nearby-header">
+            <span>Stops within walking distance</span>
+            <button class="text-btn" id="refresh-nearby-btn">
+              <i data-lucide="refresh-cw"></i> Refresh
+            </button>
+          </div>
+          <div class="nearby-list" id="nearby-list">
+            <!-- Nearby stops rendered here -->
+          </div>
+        </div>
+
+        <!-- View: Live Fleet Overview -->
+        <div class="panel-view hidden" id="view-fleet">
+          <div class="fleet-stats-card" id="fleet-stats-card">
+            <!-- Active bus statistics -->
+          </div>
+          <div class="fleet-buses-list" id="fleet-buses-list">
+            <!-- List of active buses -->
+          </div>
+        </div>
+
+        <!-- View: Bookmarks / Saved -->
+        <div class="panel-view hidden" id="view-saved">
+          <div class="saved-tabs">
+            <button class="sub-tab active" data-saved="stops">Saved Stops</button>
+            <button class="sub-tab" data-saved="routes">Saved Lines</button>
+          </div>
+          <div class="saved-list" id="saved-list">
+            <!-- Saved items -->
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+    <!-- Map Floating Controls (Bottom-Right, Google Maps Style) -->
+    <div class="map-controls">
+      <!-- Basemap Layer Switcher Popover -->
+      <div class="layer-switcher-popover hidden" id="layer-switcher-popover">
+        <div class="layer-option active" data-layer="transit">
+          <div class="layer-preview transit-preview"></div>
+          <span>Transit Light</span>
+        </div>
+        <div class="layer-option" data-layer="dark">
+          <div class="layer-preview dark-preview"></div>
+          <span>Night Transit</span>
+        </div>
+        <div class="layer-option" data-layer="satellite">
+          <div class="layer-preview sat-preview"></div>
+          <span>Satellite</span>
+        </div>
+        <div class="layer-option" data-layer="highcontrast">
+          <div class="layer-preview contrast-preview"></div>
+          <span>High Contrast</span>
+        </div>
+      </div>
+
+      <button class="map-ctrl-btn" id="btn-layer-switch" title="Change Map Style" aria-label="Layers">
+        <i data-lucide="layers"></i>
+      </button>
+
+      <div class="ctrl-group">
+        <button class="map-ctrl-btn" id="btn-pitch-3d" title="Toggle 3D Perspective" aria-label="3D View">
+          <span class="pitch-label">3D</span>
+        </button>
+        <button class="map-ctrl-btn" id="btn-compass" title="Reset North" aria-label="Compass">
+          <i data-lucide="compass" id="compass-icon"></i>
+        </button>
+      </div>
+
+      <button class="map-ctrl-btn" id="btn-locate" title="Show Your Location" aria-label="My Location">
+        <i data-lucide="crosshair"></i>
+      </button>
+
+      <div class="ctrl-group">
+        <button class="map-ctrl-btn" id="btn-zoom-in" title="Zoom In" aria-label="Zoom in">
+          <i data-lucide="plus"></i>
+        </button>
+        <button class="map-ctrl-btn" id="btn-zoom-out" title="Zoom Out" aria-label="Zoom out">
+          <i data-lucide="minus"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Active Navigation HUD Banner (Top Google Maps Style) -->
+    <div class="nav-hud-banner hidden" id="nav-hud-banner">
+      <div class="nav-hud-icon-box" id="nav-hud-icon-box">
+        <i data-lucide="navigation" id="nav-hud-icon"></i>
+      </div>
+      <div class="nav-hud-content">
+        <div class="nav-hud-step-title" id="nav-hud-title">Board Line 51A</div>
+        <div class="nav-hud-step-desc" id="nav-hud-desc">At Fruitvale BART toward Rockridge BART</div>
+        <div class="nav-hud-meta" id="nav-hud-meta">
+          <span class="nav-bus-tag" id="nav-hud-bus-tag">Bus #1718</span>
+          <span id="nav-hud-countdown">In 4 mins</span>
+        </div>
+      </div>
+      <button class="nav-close-btn" id="nav-exit-btn-top" title="Exit Navigation">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+
+    <!-- Active Navigation Bottom Control Bar (Google Maps Style) -->
+    <div class="nav-bottom-bar hidden" id="nav-bottom-bar">
+      <div class="nav-bottom-stats">
+        <div class="nav-stat-item">
+          <span class="nav-stat-val" id="nav-stat-time">18 min</span>
+          <span class="nav-stat-label">Remaining</span>
+        </div>
+        <div class="nav-stat-divider"></div>
+        <div class="nav-stat-item">
+          <span class="nav-stat-val" id="nav-stat-dist">2.4 mi</span>
+          <span class="nav-stat-label">Distance</span>
+        </div>
+        <div class="nav-stat-divider"></div>
+        <div class="nav-stat-item">
+          <span class="nav-stat-val" id="nav-stat-eta">3:28 PM</span>
+          <span class="nav-stat-label">Arrival</span>
+        </div>
+      </div>
+      <div class="nav-bottom-actions">
+        <button class="nav-step-btn" id="nav-prev-step-btn" title="Previous Step">
+          <i data-lucide="chevron-left"></i>
+        </button>
+        <div class="nav-step-counter" id="nav-step-counter">Step 1 of 4</div>
+        <button class="nav-step-btn" id="nav-next-step-btn" title="Next Step">
+          <i data-lucide="chevron-right"></i>
+        </button>
+        <button class="nav-end-btn" id="nav-exit-btn" title="End Trip Navigation">
+          <span>End</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Live Telemetry Status Pill (Bottom Center) -->
+    <div class="telemetry-pill" id="telemetry-pill">
+      <span class="pulse-dot"></span>
+      <span id="telemetry-text">AC Transit Live System Connected</span>
+    </div>
+
+    <!-- Schedule / Timetable Modal -->
+    <div class="modal-backdrop hidden" id="schedule-modal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <h3 class="modal-title" id="schedule-modal-title">Line Schedule</h3>
+            <span class="modal-subtitle" id="schedule-modal-subtitle">Timetable</span>
+          </div>
+          <button class="icon-btn close-modal-btn" id="close-schedule-modal" aria-label="Close">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div class="modal-body" id="schedule-modal-body">
+          <div class="loading-spinner"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+  </div>
+
+  <!-- Application Scripts (Modular ES6) -->
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

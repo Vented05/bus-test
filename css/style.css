@@ -1,0 +1,1803 @@
+/* ==========================================================================
+   AC Transit Maps — Modern Google Maps-Inspired Design System
+   ========================================================================== */
+
+:root {
+  /* AC Transit Branding & Colors */
+  --ac-blue: #0072CE;
+  --ac-blue-dark: #00569B;
+  --ac-blue-light: #E3F2FD;
+  --ac-green: #00843D;
+  --ac-orange: #E65100;
+  --ac-purple: #6A1B9A;
+  --ac-amber: #F57F17;
+  
+  /* Neutral Palette */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F8F9FA;
+  --bg-tertiary: #F1F3F4;
+  --bg-hover: #E8EAED;
+  --text-primary: #202124;
+  --text-secondary: #5F6368;
+  --text-muted: #80868B;
+  --border-subtle: #DADCE0;
+  --border-light: #E8EAED;
+  
+  /* Elevating Shadows */
+  --shadow-sm: 0 1px 3px rgba(60, 64, 67, 0.15), 0 1px 2px rgba(60, 64, 67, 0.10);
+  --shadow-md: 0 2px 6px rgba(60, 64, 67, 0.18), 0 1px 2px rgba(60, 64, 67, 0.08);
+  --shadow-lg: 0 4px 16px rgba(60, 64, 67, 0.20), 0 1px 4px rgba(60, 64, 67, 0.12);
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.08);
+
+  /* Layout Constants */
+  --panel-width: 412px;
+  --header-offset: 16px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+  
+  /* Font Stacks */
+  --font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'SF Mono', Monaco, Menlo, Consolas, monospace;
+}
+
+/* Dark Mode Overrides */
+body.dark-mode {
+  --bg-primary: #1F2023;
+  --bg-secondary: #282A2E;
+  --bg-tertiary: #303338;
+  --bg-hover: #3C4043;
+  --text-primary: #E8EAED;
+  --text-secondary: #9AA0A6;
+  --text-muted: #80868B;
+  --border-subtle: #3C4043;
+  --border-light: #303338;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 3px 8px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.7);
+}
+
+/* Reset & Base Styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-family);
+  font-size: 14px;
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-layout {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   Map Container
+   ========================================================================== */
+.map-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.maplibregl-canvas {
+  outline: none;
+}
+
+/* ==========================================================================
+   Floating Navigation Header (Google Maps Style)
+   ========================================================================== */
+.floating-header {
+  position: absolute;
+  top: var(--header-offset);
+  left: var(--header-offset);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: var(--panel-width);
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+}
+
+.floating-header > * {
+  pointer-events: auto;
+}
+
+/* Search Card */
+.search-card {
+  position: relative;
+  background: var(--bg-primary);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-light);
+  transition: box-shadow 0.2s ease, border-radius 0.2s ease;
+}
+
+.search-card:focus-within {
+  box-shadow: var(--shadow-lg);
+  border-color: var(--border-subtle);
+}
+
+.search-input-wrapper {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 10px 0 16px;
+}
+
+.main-search-input {
+  flex: 1;
+  height: 100%;
+  border: none;
+  background: transparent;
+  font-family: var(--font-family);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  outline: none;
+  padding: 0 10px;
+}
+
+.main-search-input::placeholder {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.search-divider {
+  width: 1px;
+  height: 24px;
+  background-color: var(--border-light);
+  margin: 0 4px;
+}
+
+/* Icon Buttons */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.icon-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.icon-btn:active {
+  transform: scale(0.95);
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.search-submit-btn {
+  color: var(--text-muted);
+}
+
+.directions-toggle-btn {
+  color: var(--ac-blue);
+  background-color: var(--ac-blue-light);
+}
+
+.directions-toggle-btn:hover {
+  background-color: #BBDEFB;
+}
+
+/* Autocomplete Dropdown */
+.search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 100%;
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  border: 1px solid var(--border-light);
+  max-height: 380px;
+  overflow-y: auto;
+  z-index: 30;
+  padding: 8px 0;
+  animation: fadeInDown 0.15s ease-out;
+}
+
+.dropdown-section-title {
+  padding: 6px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.dropdown-item:hover, .dropdown-item.active {
+  background-color: var(--bg-secondary);
+}
+
+.item-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.item-icon-wrapper.route-badge-icon {
+  font-weight: 700;
+  font-size: 12px;
+  color: #FFFFFF;
+}
+
+.item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.item-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Action Chips (Floating Filter Buttons) */
+.action-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px;
+  scrollbar-width: none;
+}
+
+.action-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-light);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+
+.chip-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.chip-btn.active {
+  background: var(--ac-blue);
+  color: #FFFFFF;
+  border-color: var(--ac-blue);
+  box-shadow: 0 2px 8px rgba(0, 114, 206, 0.35);
+}
+
+.chip-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.live-indicator-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #00E676;
+  animation: pulse 1.8s infinite;
+}
+
+/* ==========================================================================
+   Side Panel (Google Maps Drawer)
+   ========================================================================== */
+.side-panel {
+  position: absolute;
+  top: 126px;
+  left: var(--header-offset);
+  width: var(--panel-width);
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 146px);
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-light);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1), opacity 0.2s ease;
+  animation: slideInLeft 0.25s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.drawer-handle {
+  display: none;
+  justify-content: center;
+  padding: 8px 0;
+  cursor: grab;
+}
+
+.handle-bar {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background-color: var(--border-subtle);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.panel-title-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ==========================================================================
+   Directions View (Google Maps Journey Planner)
+   ========================================================================== */
+.directions-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-secondary);
+  padding: 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+}
+
+.endpoints-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.endpoints-markers {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.marker-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.origin-dot {
+  background-color: var(--ac-blue);
+  box-shadow: 0 0 0 3px var(--ac-blue-light);
+}
+
+.dest-dot {
+  background-color: #E53935;
+  box-shadow: 0 0 0 3px #FFCDD2;
+}
+
+.marker-line {
+  width: 2px;
+  height: 28px;
+  background-color: var(--border-subtle);
+  border-left: 2px dotted var(--text-muted);
+}
+
+.endpoints-inputs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  padding: 0 8px;
+  height: 38px;
+}
+
+.input-row:focus-within {
+  border-color: var(--ac-blue);
+  box-shadow: 0 0 0 2px var(--ac-blue-light);
+}
+
+.dir-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-family: var(--font-family);
+  font-size: 13.5px;
+  color: var(--text-primary);
+  outline: none;
+  padding: 0 4px;
+}
+
+.endpoint-quick-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+}
+
+.endpoint-quick-btn:hover {
+  color: var(--ac-blue);
+}
+
+.swap-endpoints-btn {
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+}
+
+.directions-presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.preset-chip {
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-light);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-family: var(--font-family);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preset-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.preset-chip.active {
+  background: var(--ac-blue);
+  color: #FFFFFF;
+  border-color: var(--ac-blue);
+}
+
+.btn-start-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: #1A73E8;
+  color: #FFFFFF;
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(26, 115, 232, 0.35);
+  transition: all 0.15s ease;
+}
+
+.btn-start-nav:hover {
+  background: #1557B0;
+  box-shadow: 0 4px 10px rgba(26, 115, 232, 0.45);
+  transform: translateY(-1px);
+}
+
+.btn-start-nav:active {
+  transform: scale(0.97);
+}
+
+.btn-start-nav svg {
+  width: 14px;
+  height: 14px;
+}
+
+.directions-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.select-wrapper {
+  flex: 1;
+}
+
+.dir-select, .dir-time-input {
+  width: 100%;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  background: var(--bg-primary);
+  padding: 0 10px;
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 16px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--ac-blue);
+  color: #FFFFFF;
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+
+.btn-primary:hover {
+  background: var(--ac-blue-dark);
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+/* Itineraries List */
+.itineraries-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.itinerary-card {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.itinerary-card:hover {
+  border-color: var(--ac-blue);
+  box-shadow: var(--shadow-sm);
+}
+
+.itinerary-card.selected {
+  border-color: var(--ac-blue);
+  box-shadow: 0 0 0 2px var(--ac-blue);
+  background-color: #FAFCFE;
+}
+
+.itin-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.itin-duration {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ac-green);
+}
+
+.itin-times {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.itin-badges-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.transit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 12px;
+  color: #FFFFFF;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+}
+
+.walk-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.arrow-separator {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.itin-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-light);
+  padding-top: 8px;
+}
+
+/* Expanded Turn-by-Turn Leg Details */
+.itin-steps-breakdown {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.step-leg {
+  display: flex;
+  gap: 12px;
+}
+
+.leg-icon-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.leg-mode-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFFFFF;
+  flex-shrink: 0;
+}
+
+.leg-mode-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.leg-connector-line {
+  flex: 1;
+  width: 3px;
+  border-radius: 1.5px;
+  margin: 4px 0;
+}
+
+.leg-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.leg-instruction {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.leg-subinfo {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.intermediate-stops-toggle {
+  font-size: 12px;
+  color: var(--ac-blue);
+  background: none;
+  border: none;
+  cursor: pointer;
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   Stop View & Real-Time Departures
+   ========================================================================== */
+.stop-card-header {
+  margin-bottom: 14px;
+}
+
+.stop-code-badge {
+  display: inline-block;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.stop-main-name {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.stop-actions-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
+}
+
+/* Departures Board */
+.departures-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.departure-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  transition: border-color 0.15s ease;
+}
+
+.departure-row:hover {
+  border-color: var(--border-subtle);
+}
+
+.dep-route-col {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dep-route-badge {
+  min-width: 44px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 800;
+  color: #FFFFFF;
+  padding: 0 8px;
+}
+
+.dep-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.dep-dest {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dep-status {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-on-time {
+  color: var(--ac-green);
+  font-weight: 600;
+}
+
+.status-delayed {
+  color: #D32F2F;
+  font-weight: 600;
+}
+
+.dep-time-col {
+  text-align: right;
+  padding-left: 10px;
+}
+
+.dep-minutes {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ac-blue);
+  line-height: 1;
+}
+
+.dep-min-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Routes Catalog & Inspector
+   ========================================================================== */
+.catalog-filters {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-width: none;
+}
+
+.catalog-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-tab {
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.filter-tab.active {
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  border-color: var(--text-primary);
+}
+
+.routes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.route-list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.route-list-item:hover {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-subtle);
+}
+
+.route-desc-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.route-item-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.route-item-cat {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* Route Details Header */
+.route-header-banner {
+  padding: 16px;
+  border-radius: var(--radius-md);
+  color: #FFFFFF;
+  margin-bottom: 12px;
+}
+
+.route-banner-badge {
+  display: inline-block;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.route-banner-title {
+  font-size: 15px;
+  font-weight: 600;
+  opacity: 0.95;
+}
+
+.direction-tabs {
+  display: flex;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.dir-tab-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: var(--font-family);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dir-tab-btn.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Route Stops Timeline */
+.stops-timeline {
+  display: flex;
+  flex-direction: column;
+  padding-left: 12px;
+}
+
+.stop-timeline-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+
+.stop-timeline-node:hover .node-name {
+  color: var(--ac-blue);
+}
+
+.node-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  border: 3px solid var(--ac-blue);
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.stop-timeline-node::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 4px;
+  background-color: var(--border-light);
+  z-index: 1;
+}
+
+.stop-timeline-node:first-child::before {
+  top: 50%;
+}
+
+.stop-timeline-node:last-child::before {
+  bottom: 50%;
+}
+
+.node-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  transition: color 0.12s ease;
+}
+
+/* ==========================================================================
+   Live Fleet Tracker Card & Buses
+   ========================================================================== */
+.fleet-stats-card {
+  background: linear-gradient(135deg, var(--ac-blue), #00569B);
+  color: #FFFFFF;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+}
+
+.fleet-stat-number {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.fleet-stat-label {
+  font-size: 12px;
+  opacity: 0.9;
+  margin-top: 4px;
+}
+
+.bus-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.bus-list-item:hover {
+  background-color: var(--bg-secondary);
+}
+
+/* ==========================================================================
+   Map Custom Markers (Buses, Stops, Geolocation)
+   ========================================================================== */
+/* Enhanced Google Maps Bus Vehicle Marker displaying Bus Number */
+.vehicle-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 12px;
+  background-color: var(--ac-blue);
+  color: #FFFFFF;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.35);
+  cursor: pointer;
+  transition: transform 0.4s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.2s ease;
+  position: relative;
+  white-space: nowrap;
+  font-family: var(--font-family);
+  user-select: none;
+}
+
+.vehicle-marker:hover {
+  transform: scale(1.15) !important;
+  box-shadow: 0 5px 14px rgba(0,0,0,0.45);
+  z-index: 100;
+}
+
+.vehicle-heading-arrow {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  margin-left: -5px;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 7px solid #FFFFFF;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+}
+
+.vehicle-route-pill {
+  font-size: 11px;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.25);
+  padding: 1px 5px;
+  border-radius: 6px;
+  letter-spacing: -0.2px;
+}
+
+.vehicle-bus-id {
+  font-size: 11px;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+
+/* Stop Marker Dot */
+.stop-dot-marker {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #FFFFFF;
+  border: 2.5px solid var(--ac-blue);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.stop-dot-marker:hover {
+  transform: scale(1.6);
+  border-color: #000000;
+  z-index: 50;
+}
+
+/* User Geolocation Pulsing Marker */
+.user-location-marker {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: #1A73E8;
+  border: 3px solid #FFFFFF;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+
+.user-location-pulse {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: rgba(26, 115, 232, 0.35);
+  animation: ripple 2s infinite ease-out;
+}
+
+/* Map Popup Styling (Google Maps Style) */
+.maplibregl-popup-content {
+  border-radius: var(--radius-md) !important;
+  padding: 12px 14px !important;
+  box-shadow: var(--shadow-popover) !important;
+  font-family: var(--font-family) !important;
+  border: 1px solid var(--border-light) !important;
+}
+
+.popup-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.popup-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   Map Floating Controls (Bottom-Right)
+   ========================================================================== */
+.map-controls {
+  position: absolute;
+  bottom: 24px;
+  right: 16px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.ctrl-group {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-light);
+}
+
+.ctrl-group .map-ctrl-btn {
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+
+.ctrl-group .map-ctrl-btn:not(:last-child) {
+  border-bottom: 1px solid var(--border-light);
+}
+
+.map-ctrl-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-md);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.map-ctrl-btn:hover {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.map-ctrl-btn:active {
+  transform: scale(0.95);
+}
+
+.map-ctrl-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.pitch-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+/* Layer Switcher Popover */
+.layer-switcher-popover {
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  border: 1px solid var(--border-light);
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  width: 220px;
+  margin-bottom: 4px;
+  animation: fadeInDown 0.15s ease;
+}
+
+.layer-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.layer-option:hover {
+  background: var(--bg-secondary);
+}
+
+.layer-option.active {
+  border-color: var(--ac-blue);
+  background: var(--ac-blue-light);
+}
+
+.layer-preview {
+  width: 72px;
+  height: 44px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+}
+
+.transit-preview {
+  background: linear-gradient(135deg, #E0F2FE 50%, #F1F5F9 50%);
+}
+
+.dark-preview {
+  background: linear-gradient(135deg, #1E293B 50%, #0F172A 50%);
+}
+
+.sat-preview {
+  background: linear-gradient(135deg, #166534 50%, #1E3A8A 50%);
+}
+
+.contrast-preview {
+  background: linear-gradient(135deg, #000000 50%, #FFFFFF 50%);
+}
+
+.layer-option span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Telemetry Status Pill */
+.telemetry-pill {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(32, 33, 36, 0.85);
+  backdrop-filter: blur(8px);
+  color: #FFFFFF;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  font-size: 11.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: var(--shadow-md);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #00E676;
+  box-shadow: 0 0 6px #00E676;
+}
+
+/* ==========================================================================
+   Modal Dialog (Schedules / Timetables)
+   ========================================================================== */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+
+.modal-card {
+  width: 90%;
+  max-width: 640px;
+  max-height: 80vh;
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+/* Toast Notifications */
+.toast-container {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  animation: fadeInRight 0.2s ease;
+}
+
+/* Animations & Utility */
+.hidden {
+  display: none !important;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInRight {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-16px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* ==========================================================================
+   Google Maps Active Navigation Mode (Top HUD Banner & Bottom Bar)
+   ========================================================================== */
+.nav-hud-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 92%;
+  max-width: 580px;
+  background: #0072CE;
+  color: #FFFFFF;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  z-index: 50;
+  animation: fadeInDown 0.25s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.nav-hud-icon-box {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nav-hud-icon-box svg {
+  width: 24px;
+  height: 24px;
+  color: #FFFFFF;
+}
+
+.nav-hud-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.nav-hud-step-title {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-hud-step-desc {
+  font-size: 12.5px;
+  opacity: 0.92;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-hud-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.nav-bus-tag {
+  background: #FFFFFF;
+  color: var(--ac-blue);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 800;
+}
+
+.nav-close-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  display: inline-flex;
+}
+
+.nav-close-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #FFFFFF;
+}
+
+/* Bottom Navigation Bar */
+.nav-bottom-bar {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 92%;
+  max-width: 580px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--border-light);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 50;
+  animation: slideUp 0.25s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.nav-bottom-stats {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.nav-stat-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-stat-val {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ac-green);
+  line-height: 1.1;
+}
+
+.nav-stat-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.nav-stat-divider {
+  width: 1px;
+  height: 24px;
+  background-color: var(--border-light);
+}
+
+.nav-bottom-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-step-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.nav-step-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.nav-step-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.nav-step-counter {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.nav-end-btn {
+  background: #E53935;
+  color: #FFFFFF;
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 7px 14px;
+  font-family: var(--font-family);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: 4px;
+  transition: background 0.15s ease;
+}
+
+.nav-end-btn:hover {
+  background: #C62828;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.6; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes ripple {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* ==========================================================================
+   Responsive Mobile Optimization
+   ========================================================================== */
+@media (max-width: 640px) {
+  :root {
+    --panel-width: 100vw;
+    --header-offset: 10px;
+  }
+
+  .floating-header {
+    width: calc(100vw - 20px);
+  }
+
+  .side-panel {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 70vh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    animation: slideUp 0.25s cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .drawer-handle {
+    display: flex;
+  }
+
+  .map-controls {
+    bottom: 80px;
+    right: 12px;
+  }
+
+  .telemetry-pill {
+    bottom: 12px;
+  }
+
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+}
