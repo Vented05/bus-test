@@ -170,10 +170,17 @@ function groupAndDeduplicateStops(stops, query) {
 
   const groups = [];
   for (const s of matches) {
-    const normName = s.name.trim().toLowerCase();
+    const canonName = s.name.trim()
+      .replace(/\s*\(bay\s+[a-z0-9]+\)/i, '')
+      .replace(/\s+bay\s+[a-z0-9]+/i, '')
+      .replace(/\s+transit\s+center/i, '')
+      .replace(/\s+station/i, '')
+      .trim()
+      .toLowerCase();
+
     let foundGroup = null;
     for (const g of groups) {
-      if (g.normName === normName && distM(g, s) < 450) {
+      if (g.canonName === canonName && distM(g, s) < 550) {
         foundGroup = g;
         break;
       }
@@ -181,9 +188,14 @@ function groupAndDeduplicateStops(stops, query) {
     if (foundGroup) {
       foundGroup.stops.push(s);
     } else {
+      const cleanName = s.name.trim()
+        .replace(/\s*\(bay\s+[a-z0-9]+\)/i, '')
+        .replace(/\s+bay\s+[a-z0-9]+/i, '')
+        .trim();
       groups.push({
-        name: s.name.trim(),
-        normName: normName,
+        name: cleanName,
+        canonName: canonName,
+        normName: s.name.trim().toLowerCase(),
         city: s.city || '',
         lat: s.lat,
         lon: s.lon,
@@ -209,7 +221,7 @@ function groupAndDeduplicateStops(stops, query) {
       return {
         id: `hub_${codes[0]}`,
         name: g.name,
-        label: `Transit Center · ${count} Stops (#${codes.slice(0, 3).join(', ')}${count > 3 ? '...' : ''}) · ${g.city}`,
+        label: `Transit Center · ${count} Bays · ${g.city || 'East Bay'}`,
         city: g.city || 'East Bay',
         lat: avgLat,
         lon: avgLon,
@@ -711,6 +723,13 @@ app.get('/api/geocode', async (req, res) => {
     const routeNameSet = new Set(localRouteMatches.map(r => r.name.toLowerCase().trim()));
 
     const placeMatches = features
+      .filter(f => {
+        const layer = (f.properties?.layer || '').toLowerCase();
+        const val = (f.properties?.osm_value || '').toLowerCase();
+        if (['bus_stop', 'bus_station', 'station', 'stop', 'tram_stop', 'platform'].includes(val)) return false;
+        if (layer === 'station') return false;
+        return true;
+      })
       .map(f => ({
         id: f.properties.id || f.properties.gid,
         name: f.properties.name,
@@ -724,9 +743,10 @@ app.get('/api/geocode', async (req, res) => {
         const pLower = (p.name || '').toLowerCase().trim();
         if (stopNameSet.has(pLower) || routeNameSet.has(pLower)) return false;
         for (const s of localStopMatches) {
-          if (s.name.toLowerCase().includes(pLower) || pLower.includes(s.name.toLowerCase())) {
+          const sLower = s.name.toLowerCase().trim();
+          if (sLower.includes(pLower) || pLower.includes(sLower) || (pLower.includes('bart') && sLower.includes('bart'))) {
             const dist = getDistanceMeters(s.lat, s.lon, p.lat, p.lon);
-            if (dist < 1000) return false;
+            if (dist < 1500) return false;
           }
         }
         return true;
@@ -760,7 +780,10 @@ app.get('/api/plan', async (req, res) => {
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
     const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const h12 = now.getHours() % 12 || 12;
+    const defaultTime = `${h12}:${pad(now.getMinutes())}${now.getHours() < 12 ? 'am' : 'pm'}`;
     const effectiveDate = date || defaultDate;
+    const effectiveTime = time || defaultTime;
 
     const params = new URLSearchParams({
       fromPlace: from,
@@ -770,15 +793,14 @@ app.get('/api/plan', async (req, res) => {
       maxWalkDistance,
       optimize: 'QUICK',
       bannedAgencies: 'ACREALIGN',
-      actmode: 'true',
       walkSpeed: '1.34',
       ignoreRealtimeUpdates: 'false',
       showIntermediateStops: 'true',
       numItineraries: '6',
       wheelchair: String(wheelchair),
-      date: effectiveDate
+      date: effectiveDate,
+      time: effectiveTime
     });
-    if (time) params.append('time', time);
 
     const canceledTrips = await getCanceledTrips().catch(() => []);
     const canForLeg = (leg) => {
@@ -796,8 +818,25 @@ app.get('/api/plan', async (req, res) => {
       return null;
     };
 
-    const otpUrl = `${OTP_BASE}/plan?${params.toString()}`;
-    const data = await fetchJson(otpUrl);
+    let data = null;
+    try {
+      const otpUrl = `${OTP_BASE}/plan?${params.toString()}`;
+      data = await fetchJson(otpUrl);
+    } catch (e) {
+      console.warn('[Server OTP] Primary plan failed, trying fallback mode:', e.message);
+    }
+
+    if (!data || data.error || !data.plan?.itineraries?.length) {
+      try {
+        params.set('mode', 'WALK,BUS');
+        params.set('maxWalkDistance', '2500');
+        const fallbackUrl = `${OTP_BASE}/plan?${params.toString()}`;
+        const fallbackData = await fetchJson(fallbackUrl);
+        if (fallbackData?.plan?.itineraries?.length) {
+          data = fallbackData;
+        }
+      } catch (e) {}
+    }
 
     const itineraries = data?.plan?.itineraries || [];
     const formatted = itineraries.map((itin, index) => {
@@ -968,12 +1007,13 @@ app.use('/api/map', async (req, res, next) => {
   }
 });
 
-// Serve frontend static files
+// Serve frontend static files from root and public
+app.use(express.static(__dirname));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Fallback to index.html for SPA routing
 app.use((req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // Start Server

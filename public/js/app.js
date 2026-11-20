@@ -119,7 +119,7 @@ class App {
       return;
     }
 
-    this.dropdownList.innerHTML = results.map(item => {
+    this.dropdownList.innerHTML = results.map((item, idx) => {
       let icon = 'map-pin';
       let iconColor = 'inherit';
       let iconBg = 'var(--bg-tertiary)';
@@ -129,17 +129,21 @@ class App {
         iconBg = item.color || 'var(--ac-blue)';
         iconColor = '#FFFFFF';
       } else if (item.type === 'stop') {
-        icon = 'bus';
+        icon = item.isHub ? 'building-2' : 'bus';
+        if (item.isHub) {
+          iconBg = '#FFF3E0';
+          iconColor = '#E65100';
+        }
       }
 
       return `
-        <div class="dropdown-item" data-type="${item.type}" data-id="${item.id}" data-lat="${item.lat || ''}" data-lon="${item.lon || ''}" data-routeid="${item.routeId || ''}" data-stopid="${item.stopId || ''}">
+        <div class="dropdown-item" data-idx="${idx}" data-type="${item.type}" data-id="${item.id}" data-lat="${item.lat || ''}" data-lon="${item.lon || ''}" data-routeid="${item.routeId || ''}" data-stopid="${item.stopId || ''}">
           <div class="item-icon-wrapper" style="background-color: ${iconBg}; color: ${iconColor};">
             <i data-lucide="${icon}"></i>
           </div>
           <div class="item-content">
             <div class="item-title">${item.name}</div>
-            <div class="item-subtitle">${item.city || item.label || ''}</div>
+            <div class="item-subtitle">${item.label || item.city || ''}</div>
           </div>
         </div>
       `;
@@ -151,6 +155,8 @@ class App {
     // Item click handling
     this.dropdownList.querySelectorAll('.dropdown-item').forEach(el => {
       el.addEventListener('click', () => {
+        const idx = parseInt(el.getAttribute('data-idx'), 10);
+        const item = results[idx];
         const type = el.getAttribute('data-type');
         this.dropdown.classList.add('hidden');
 
@@ -158,8 +164,7 @@ class App {
           const routeId = el.getAttribute('data-routeid');
           this.routesController.inspectRoute(routeId);
         } else if (type === 'stop') {
-          const stopId = el.getAttribute('data-stopid');
-          this.stopsController.inspectStop(stopId);
+          this.stopsController.inspectStop(item || el.getAttribute('data-stopid'));
         } else {
           // Place / Address
           const lat = parseFloat(el.getAttribute('data-lat'));

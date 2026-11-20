@@ -184,17 +184,23 @@ export class DirectionsController {
       return;
     }
 
-    this.dropdown.innerHTML = results.map(item => `
-      <div class="dropdown-item" data-id="${item.id}" data-name="${item.name}" data-lat="${item.lat}" data-lon="${item.lon}">
-        <div class="item-icon-wrapper">
-          <i data-lucide="${item.type === 'stop' ? 'bus' : 'map-pin'}"></i>
+    this.dropdown.innerHTML = results.map(item => {
+      let icon = item.type === 'stop' ? (item.isHub ? 'building-2' : 'bus') : 'map-pin';
+      let iconBg = item.isHub ? '#FFF3E0' : 'var(--bg-tertiary)';
+      let iconColor = item.isHub ? '#E65100' : 'var(--text-secondary)';
+
+      return `
+        <div class="dropdown-item" data-id="${item.id}" data-name="${item.name}" data-lat="${item.lat}" data-lon="${item.lon}">
+          <div class="item-icon-wrapper" style="background-color: ${iconBg}; color: ${iconColor};">
+            <i data-lucide="${icon}"></i>
+          </div>
+          <div class="item-content">
+            <div class="item-title">${item.name}</div>
+            <div class="item-subtitle">${item.label || item.city || ''}</div>
+          </div>
         </div>
-        <div class="item-content">
-          <div class="item-title">${item.name}</div>
-          <div class="item-subtitle">${item.city || item.label || ''}</div>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     this.dropdown.classList.remove('hidden');
     if (window.lucide) window.lucide.createIcons({ root: this.dropdown });
@@ -307,8 +313,80 @@ export class DirectionsController {
     }
   }
 
+  async _resolveEndpoint(type) {
+    const input = type === 'from' ? this.fromInput : this.toInput;
+    const current = type === 'from' ? this.origin : this.destination;
+    const val = input.value.trim();
+
+    if (!val) return null;
+
+    if (current && current.name === val) {
+      return current;
+    }
+
+    if (/current location|my location/i.test(val)) {
+      if (this.app.userLocation) {
+        const place = { name: 'Your Location', lat: this.app.userLocation[1], lon: this.app.userLocation[0] };
+        if (type === 'from') this.setOrigin(place); else this.setDestination(place);
+        return place;
+      }
+      return new Promise((res) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const place = { name: 'Your Location', lat: pos.coords.latitude, lon: pos.coords.longitude };
+            if (type === 'from') this.setOrigin(place); else this.setDestination(place);
+            res(place);
+          },
+          () => res(null),
+          { timeout: 5000, enableHighAccuracy: true }
+        );
+      });
+    }
+
+    // Direct stop code match if numeric
+    if (/^\d{4,6}$/.test(val)) {
+      try {
+        const stops = await api.getStops(null, val, 1);
+        if (stops && stops.length > 0) {
+          const s = stops[0];
+          const place = { name: `${s.name} (Stop #${s.code || s.stopId})`, lat: s.lat, lon: s.lon, stopId: s.code || s.stopId };
+          if (type === 'from') this.setOrigin(place); else this.setDestination(place);
+          return place;
+        }
+      } catch (e) {}
+    }
+
+    // Search via geocode / autocomplete
+    try {
+      const results = await api.getGeocode(val);
+      if (results && results.length > 0) {
+        const top = results[0];
+        const place = {
+          name: top.name,
+          lat: top.lat,
+          lon: top.lon,
+          stopId: top.stopId || null
+        };
+        if (type === 'from') this.setOrigin(place); else this.setDestination(place);
+        return place;
+      }
+    } catch (e) {
+      console.warn('[Directions] Endpoint resolution error:', e);
+    }
+
+    return current;
+  }
+
   // Plan Trip Execution
   async planTrip() {
+    // Auto-resolve any typed values before verifying endpoints
+    if (!this.origin || (this.fromInput.value.trim() && this.origin.name !== this.fromInput.value.trim())) {
+      await this._resolveEndpoint('from');
+    }
+    if (!this.destination || (this.toInput.value.trim() && this.destination.name !== this.toInput.value.trim())) {
+      await this._resolveEndpoint('to');
+    }
+
     if (!this.origin || !this.destination) {
       this.app.showToast('Please specify both starting point and destination.');
       return;
@@ -334,10 +412,20 @@ export class DirectionsController {
       if (timeType === 'arrive') {
         params.arriveBy = 'true';
       }
-      if ((timeType === 'depart' || timeType === 'arrive') && this.timeValInput.value) {
-        params.time = this.timeValInput.value;
-        const now = new Date();
-        params.date = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
+
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      params.date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+      if (timeType === 'now') {
+        const h12 = now.getHours() % 12 || 12;
+        params.time = `${h12}:${pad(now.getMinutes())}${now.getHours() < 12 ? 'am' : 'pm'}`;
+      } else if (this.timeValInput.value) {
+        const parts = this.timeValInput.value.split(':');
+        const hNum = parseInt(parts[0], 10);
+        const mStr = parts[1] || '00';
+        const h12 = hNum % 12 || 12;
+        params.time = `${h12}:${mStr}${hNum < 12 ? 'am' : 'pm'}`;
       }
 
       if (this.modeSelect) {
@@ -361,11 +449,39 @@ export class DirectionsController {
 
     } catch (err) {
       console.error('[Directions] Trip plan error:', err);
+      const msg = err.message || 'Unable to calculate route. Please try another destination.';
       this.itinerariesContainer.innerHTML = `
-        <div style="text-align: center; padding: 20px; color: #D32F2F;">
-          Unable to calculate route. Please try another destination.
+        <div style="text-align: center; padding: 20px; color: var(--text-secondary);">
+          <div style="color: #E53935; font-weight: 700; margin-bottom: 8px;">
+            <i data-lucide="alert-triangle" style="display: inline-block; vertical-align: middle; margin-right: 6px;"></i>
+            Notice
+          </div>
+          <div style="font-size: 13px; line-height: 1.5; margin-bottom: 14px;">
+            ${msg}
+          </div>
+          <div style="display: flex; gap: 8px; justify-content: center;">
+            <button class="preset-chip" id="retry-3pm" style="font-size: 12px; padding: 6px 14px; cursor: pointer;">
+              Try 3:00 PM
+            </button>
+            <button class="preset-chip" id="retry-now" style="font-size: 12px; padding: 6px 14px; cursor: pointer;">
+              Try Leave Now
+            </button>
+          </div>
         </div>
       `;
+      if (window.lucide) window.lucide.createIcons({ root: this.itinerariesContainer });
+      const r3 = document.getElementById('retry-3pm');
+      if (r3) r3.onclick = () => {
+        const p3 = document.getElementById('preset-3pm');
+        if (p3) p3.click();
+        this.planTrip();
+      };
+      const rn = document.getElementById('retry-now');
+      if (rn) rn.onclick = () => {
+        const pn = document.getElementById('preset-now');
+        if (pn) pn.click();
+        this.planTrip();
+      };
     }
   }
 
@@ -390,6 +506,7 @@ export class DirectionsController {
             <span class="transit-badge" style="background-color: ${leg.color}; color: ${leg.textColor};">
               <span>${leg.routeShortName || leg.route}</span>
             </span>
+            ${leg.isCanceled ? '<span class="badge-canceled">CANCELED</span>' : ''}
             ${legIdx < itin.legs.length - 1 ? '<span class="arrow-separator">›</span>' : ''}
           `;
         }
@@ -433,6 +550,7 @@ export class DirectionsController {
                   ? `Walk ${leg.durationMinutes} min (${(leg.distanceMeters / 1609.34).toFixed(1)} mi) to ${leg.to.name}`
                   : `Board Line ${leg.routeShortName} at ${leg.from.name} toward ${leg.headsign || leg.to.name}`
                 }
+                ${leg.isCanceled ? '<span class="badge-canceled" style="margin-left: 6px;">CANCELED</span>' : ''}
               </div>
               <div class="leg-subinfo">
                 ${isWalk 
@@ -448,6 +566,7 @@ export class DirectionsController {
 
       return `
         <div class="itinerary-card ${idx === 0 ? 'selected' : ''}" data-index="${idx}">
+          ${itin.hasCanceledBus ? '<div class="itin-canceled-banner"><i data-lucide="alert-triangle"></i> Trip includes a canceled bus</div>' : ''}
           <div class="itin-header">
             <div class="itin-duration">${durationMins} min</div>
             <div class="itin-times">${startFormatted} – ${endFormatted}</div>

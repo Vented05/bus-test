@@ -106,13 +106,20 @@ function groupAndDeduplicateStops(stops, query) {
     return 12742000 * Math.asin(Math.sqrt(x));
   };
 
-  // Group matching stops by canonical name and proximity (< 450 meters)
+  // Group matching stops by canonical name and proximity (< 550 meters)
   const groups = [];
   for (const s of matches) {
-    const normName = s.name.trim().toLowerCase();
+    const canonName = s.name.trim()
+      .replace(/\s*\(bay\s+[a-z0-9]+\)/i, '')
+      .replace(/\s+bay\s+[a-z0-9]+/i, '')
+      .replace(/\s+transit\s+center/i, '')
+      .replace(/\s+station/i, '')
+      .trim()
+      .toLowerCase();
+
     let foundGroup = null;
     for (const g of groups) {
-      if (g.normName === normName && distM(g, s) < 450) {
+      if (g.canonName === canonName && distM(g, s) < 550) {
         foundGroup = g;
         break;
       }
@@ -120,9 +127,14 @@ function groupAndDeduplicateStops(stops, query) {
     if (foundGroup) {
       foundGroup.stops.push(s);
     } else {
+      const cleanName = s.name.trim()
+        .replace(/\s*\(bay\s+[a-z0-9]+\)/i, '')
+        .replace(/\s+bay\s+[a-z0-9]+/i, '')
+        .trim();
       groups.push({
-        name: s.name.trim(),
-        normName: normName,
+        name: cleanName,
+        canonName: canonName,
+        normName: s.name.trim().toLowerCase(),
         city: s.city || '',
         lat: s.lat,
         lon: s.lon,
@@ -150,7 +162,7 @@ function groupAndDeduplicateStops(stops, query) {
       return {
         id: `hub_${codes[0]}`,
         name: g.name,
-        label: `Transit Center · ${count} Stops (#${codes.slice(0, 3).join(', ')}${count > 3 ? '...' : ''}) · ${g.city}`,
+        label: `Transit Center · ${count} Bays · ${g.city || 'East Bay'}`,
         city: g.city || 'East Bay',
         lat: avgLat,
         lon: avgLon,
@@ -165,7 +177,7 @@ function groupAndDeduplicateStops(stops, query) {
       return {
         id: `stop_${s.stopId}`,
         name: s.name,
-        label: `Stop #${s.code || s.stopId} · ${s.city}`,
+        label: `Stop #${s.code || s.stopId} · ${s.city || 'East Bay'}`,
         city: s.city || 'East Bay',
         lat: s.lat,
         lon: s.lon,
@@ -512,6 +524,10 @@ class ApiService {
         const routeNameSet = new Set(localRouteMatches.map(r => r.name.toLowerCase().trim()));
 
         const placeMatches = (pData.features || [])
+          .filter(f => {
+            const val = (f.properties?.osm_value || '').toLowerCase();
+            return !['bus_stop', 'bus_station', 'station', 'stop', 'tram_stop', 'platform'].includes(val);
+          })
           .map(f => ({
             id: f.properties.osm_id || Math.random(),
             name: f.properties.name || f.properties.street || query,
@@ -525,11 +541,12 @@ class ApiService {
             const pLower = p.name.toLowerCase().trim();
             // Suppress place if identical to a transit stop or route
             if (stopNameSet.has(pLower) || routeNameSet.has(pLower)) return false;
-            // Also suppress if transit stop name contains place name and is within 1km
+            // Also suppress if transit stop name contains place name and is within 1.5km
             for (const s of localStopMatches) {
-              if (s.name.toLowerCase().includes(pLower) || pLower.includes(s.name.toLowerCase())) {
+              const sLower = s.name.toLowerCase().trim();
+              if (sLower.includes(pLower) || pLower.includes(sLower) || (pLower.includes('bart') && sLower.includes('bart'))) {
                 const dist = Math.hypot(s.lat - p.lat, s.lon - p.lon) * 111000;
-                if (dist < 1000) return false;
+                if (dist < 1500) return false;
               }
             }
             return true;
@@ -550,6 +567,8 @@ class ApiService {
       const now = new Date();
       const pad = n => String(n).padStart(2, '0');
       const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      const h12 = now.getHours() % 12 || 12;
+      const defaultTime = `${h12}:${pad(now.getMinutes())}${now.getHours() < 12 ? 'am' : 'pm'}`;
       
       const params = new URLSearchParams({
         fromPlace: options.from,
@@ -559,15 +578,14 @@ class ApiService {
         maxWalkDistance: options.maxWalkDistance || '1609',
         optimize: 'QUICK',
         bannedAgencies: 'ACREALIGN',
-        actmode: 'true',
         walkSpeed: '1.34',
         ignoreRealtimeUpdates: 'false',
         showIntermediateStops: 'true',
         numItineraries: '6',
         wheelchair: String(options.wheelchair || 'false'),
-        date: options.date || defaultDate
+        date: options.date || defaultDate,
+        time: options.time || defaultTime
       });
-      if (options.time) params.append('time', options.time);
 
       const canceledTrips = await this.getCanceledTrips().catch(() => []);
       const canForLeg = (leg) => {
@@ -585,8 +603,39 @@ class ApiService {
         return null;
       };
 
-      const res = await fetch(`${OTP_BASE}/plan?${params.toString()}`);
-      const data = await res.json();
+      let data = null;
+      let lastError = null;
+      try {
+        const res = await fetch(`${OTP_BASE}/plan?${params.toString()}`);
+        if (res.ok) {
+          data = await res.json();
+        } else {
+          lastError = new Error(`Planner returned HTTP ${res.status}`);
+        }
+      } catch (err) {
+        lastError = err;
+        console.warn('[API] Direct OTP fetch error:', err);
+      }
+
+      // Retry with simplified mode if needed
+      if (!data || data.error || !data.plan?.itineraries?.length) {
+        try {
+          params.set('mode', 'WALK,BUS');
+          params.set('maxWalkDistance', '2500');
+          const fallbackRes = await fetch(`${OTP_BASE}/plan?${params.toString()}`);
+          if (fallbackRes.ok) {
+            const fallbackData = await fallbackRes.json();
+            if (fallbackData?.plan?.itineraries?.length) {
+              data = fallbackData;
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (!data || data.error || !data.plan?.itineraries?.length) {
+        const msg = data?.error?.msg || lastError?.message || 'No direct transit routes found for this time. Try setting time to 3:00 PM or Leave Now.';
+        throw new Error(msg);
+      }
       const itineraries = data?.plan?.itineraries || [];
 
       const formatted = itineraries.map((itin, index) => {
